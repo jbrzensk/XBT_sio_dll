@@ -1,0 +1,1 @@
+c:\lf9573\bin\lf95 sio.for siosub.for c:\Users\llehmann\autoxbt\rdcntrl.for -win -ml msvc -dll -verbose > sio-win7compile.log
