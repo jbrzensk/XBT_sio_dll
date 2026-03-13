@@ -22,6 +22,7 @@
      $             deadmin,dropmin,relodmin,tdzmx,tdzrms,dtdzmn,dtdzth,
      $             dtmx,dtmx700,tm_pl_mn,tm_pl_mx,acontrol,ifile,
      $             ichkprofdepth)
+!GCC$ ATTRIBUTES DLLEXPORT :: rdcntrl
 ! INPUT:
 !	acontrol - character string of path to control.dat
 !

@@ -914,7 +914,7 @@ c new! 13jun2005
 !******************************************
 !
         SUBROUTINE dayofw(iweekday)
-        use service_routines
+
         integer*4 iweekday
         character*24 ch
         call fdate(ch)
@@ -1717,7 +1717,7 @@ c same min, check sec
 ! get year as 2 digit year
        call int2ch(iyr,adosyear,1,len)
        call ch2real(adosyear,3,2,x)
-       i1 = int4(x)
+       i1 = int(x)
        i2 = imn
        i3 = idy
        n = 5
@@ -2190,7 +2190,7 @@ c put a 0 in front of decimal pt if number less than 0
 !
 !******************************************************
 !
-        SUBROUTINE time(timetag,ihr,imin,isec)
+        SUBROUTINE timetohms(timetag,ihr,imin,isec)
 ! translate timetag to ihr:imin:isec
 ! IN:       real*4 timetag
 ! OUT:       integer*4 ihr,imin,isec
@@ -2389,3 +2389,28 @@ c put a 0 in front of decimal pt if number less than 0
         return
         end
 !*****************************************************
+!
+! gfortran compatibility wrappers for Lahey/Intel gettim and getdat
+! These replace the non-standard compiler intrinsics using
+! standard Fortran DATE_AND_TIME.
+!
+        SUBROUTINE gettim(ihr,imin,isec,ihsec)
+        integer*2 ihr,imin,isec,ihsec
+        integer idt(8)
+        call DATE_AND_TIME(VALUES=idt)
+        ihr   = idt(5)
+        imin  = idt(6)
+        isec  = idt(7)
+        ihsec = idt(8) / 10
+        return
+        end
+!
+        SUBROUTINE getdat(iyr,imo,iday)
+        integer*2 iyr,imo,iday
+        integer idt(8)
+        call DATE_AND_TIME(VALUES=idt)
+        iyr  = idt(1)
+        imo  = idt(2)
+        iday = idt(3)
+        return
+        end

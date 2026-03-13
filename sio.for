@@ -130,7 +130,7 @@
 
 
         parameter(nerr=50)
-        dll_export siobegin
+!GCC$ ATTRIBUTES DLLEXPORT :: siobegin
 ! OLD:   NEED TO FIX CODE to match JBs definition of igps - basically she will
 ! be changing it often!
 ! igps: =1 have incoming messages on the com port - we have a gps plugged in
@@ -215,6 +215,12 @@
         integer*4 iphr, ipmn, ipsc
         integer*4 idhr, idmin, idsec
 !
+! DIAGNOSTIC
+        open(98,file='C:\Users\Public\sio_called.txt',
+     $       form='formatted',status='unknown')
+        write(98,*) 'siobegin called'
+        close(98)
+! END DIAGNOSTIC
         speed = -0.00009
         dir = 0.0
         nplan = 0
@@ -616,9 +622,9 @@ c should never happen!
 
 ! dtime: dos time in seconds, get dos time (gettim uses i*2):
          CALL gettim(j1,j2,j3,j4)
-         idhr = int4(j1)
-         idmin = int4(j2)
-         idsec = int4(j3)
+         idhr = int(j1)
+         idmin = int(j2)
+         idsec = int(j3)
          dtime = float(idhr*3600 + idmin*60 + idsec)
 ! yes - idsec2 - this is suppose to be seas incoming second:
          idsec2 = int(csec)
@@ -1203,7 +1209,7 @@ c should never happen!
 
         parameter(nerr=50)
 
-        dll_export sioloop
+!GCC$ ATTRIBUTES DLLEXPORT :: sioloop
 
 ! main loop portion of sio gps program.
 !
@@ -1276,6 +1282,7 @@ c should never happen!
         integer*4 jpos,len,iiyergps,iiyerave,iweekday
 
         real*4 stoptime,yrday2,s,d,x,timetag
+        SAVE stoptime
 ! BRZENSKI added variables for storing last good vlat and vlon
         real*4 vlat_prev, vlon_prev
         
@@ -1404,9 +1411,9 @@ c should never happen!
 ! dtime: dos time in seconds, get dos time (gettim uses i*2):
 ! note further down idhr,idmin,idsec are reset to incoming seas
          CALL gettim(j1,j2,j3,j4)
-         idhr = int4(j1)
-         idmin = int4(j2)
-         idsec = int4(j3)
+         idhr = int(j1)
+         idmin = int(j2)
+         idsec = int(j3)
          dtime = float(idhr*3600 + idmin*60 + idsec)
 ! debugging only! get pc date (getdat uses i*2): j1=4 digit year, j2=month, j3=day
          CALL getdat(j1,j2,j3)
@@ -1794,7 +1801,7 @@ c should never happen!
               endif
 
 ! translate timeave:(ave of last min's timetags) to hr:min:sec
-              CALL time(timeave,ihr,imin,isec)
+              CALL timetohms(timeave,ihr,imin,isec)
 
 ! write date, gps time, gps position timetag ave, lat ave, long ave,
 ! OEM unit status, speed, dir, # fixes, &  current 
@@ -2413,7 +2420,7 @@ c 28jan2004 - moved this here - will it work?:
 !
         parameter(nerr=50)
 !
-        dll_export sioend
+!GCC$ ATTRIBUTES DLLEXPORT :: sioend
 !
         character avlath*1, avlonh*1
         character*8 adateave
@@ -2591,7 +2598,7 @@ c 28jan2004 - moved this here - will it work?:
 !
 ! translate timeave to hr:min:sec
          if(iw.eq.1)write(ifile,*)'call time,timeave=',timeave
-         CALL time(timeave,ihr,imin,isec)
+         CALL timetohms(timeave,ihr,imin,isec)
 ! write updated averaged position/speed/dir to navtrk.dat:
 ! FIX figure out what to do here:
 ! change this from checking only speed/dir TO check position/speed/dir!
@@ -2614,9 +2621,9 @@ c 28jan2004 - moved this here - will it work?:
 !
 ! dtime: dos time in seconds, get dos time (gettim uses i*2):
          CALL gettim(j1,j2,j3,j4)
-         idhr = int4(j1)
-         idmin = int4(j2)
-         idsec = int4(j3)
+         idhr = int(j1)
+         idmin = int(j2)
+         idsec = int(j3)
          dtime = float(idhr*3600 + idmin*60 + idsec)
 !
 ! debugging:
@@ -2733,9 +2740,9 @@ c 28jan2004 - moved this here - will it work?:
 ! debugging:
          if(iw.eq.1) then
           CALL gettim(j1,j2,j3,j4)
-          idhr = int4(j1)
-          idmin = int4(j2)
-          idsec = int4(j3)
+          idhr = int(j1)
+          idmin = int(j2)
+          idsec = int(j3)
           CALL getdat(j1,j2,j3)
           write(ifile,582)j3,j2,j1,idhr,idmin,idsec
           write(ifile,*)'End sioend'
@@ -2757,7 +2764,7 @@ c 28jan2004 - moved this here - will it work?:
 ! ireturn=0 -> ran ok,  ireturn=1 -> error, check ierror(nerr) codes
         parameter(nerr=50)
 
-        dll_export gpspos
+!GCC$ ATTRIBUTES DLLEXPORT :: gpspos
 
 ! 21jan2005 - ichoosedrop - let operator choose which drop to 
 !        renavigate.   If ichoosedrop .lt. 0 (negative) then 
@@ -3458,7 +3465,7 @@ c 28jan2004 - moved this here - will it work?:
         
         parameter(nerr=50)
 
-        dll_export chkprof
+!GCC$ ATTRIBUTES DLLEXPORT :: chkprof
 !06nov2014- ok, so if f2 (profile we are checking) is less than ichkprofdepth
 ! (depth to check profile TO, usually 700m) then I exit out and say chkprof
 ! not run "for other reasons", but I'm not putting a code into the ichk col!
@@ -4229,7 +4236,7 @@ c 28jan2004 - moved this here - will it work?:
      $             ihr,imin,isec,ierror,xlat,xlon)
         parameter (nerr=50)
 
-        dll_export wrdrpstn
+!GCC$ ATTRIBUTES DLLEXPORT :: wrdrpstn
 !3sep2014 LL add (new) ierror(40) error read s file (no biggy)
 !            add ierror(46) error open s file (no biggy)
 !            (no biggy on s file as seas now sends decent t700)
@@ -4741,7 +4748,7 @@ c 28jan2004 - moved this here - will it work?:
 
         parameter(nerr=50)
 
-        dll_export wrnavfls
+!GCC$ ATTRIBUTES DLLEXPORT :: wrnavfls
 !
 !        10 = date.nav
 !        22 = control.dat
@@ -4871,7 +4878,7 @@ c 28jan2004 - moved this here - will it work?:
         if(imon.gt.9) jpos = 4
         CALL int2ch(imon,adate,jpos,len)
         CALL ch2real(adosyear,3,2,x)
-        i1 = int4(x)
+        i1 = int(x)
         jpos = 8
         if(i1.gt.9) jpos = 7
         CALL int2ch(i1,adate,jpos,len)
@@ -5183,7 +5190,7 @@ c 28jan2004 - moved this here - will it work?:
         parameter(nr=10)
         parameter(nerr=50)
 
-        dll_export prstat
+!GCC$ ATTRIBUTES DLLEXPORT :: prstat
 
 !23456789012345678901234567890123456789012345678901234567890123456789012       
         character axmit*1
@@ -5479,7 +5486,7 @@ c         and iskip = iskip...
 !
         parameter (nerr=50)
 
-        dll_export wrxmit
+!GCC$ ATTRIBUTES DLLEXPORT :: wrxmit
 
 ! 21jan2005 - add ichoosedrop - so op can enter which drop was xmitted.
 !        Seas should use ichoosedrop=-99 for regular use!
@@ -5737,7 +5744,7 @@ c         and iskip = iskip...
         parameter (nlnchrs=12)
         parameter (maxtems=3000)
 
-        dll_export seas2s
+!GCC$ ATTRIBUTES DLLEXPORT :: seas2s
 
         integer*4 la(nlines)
         integer*4 ierror(nerr)
@@ -6257,7 +6264,7 @@ c now tack on nextdrop to get final arawfile name.   whew.
         SUBROUTINE SioTimeBegin(nextdrop,ierror)
 
         parameter(nerr=50)
-        dll_export siotimebegin
+!GCC$ ATTRIBUTES DLLEXPORT :: SioTimeBegin
 
         integer*4 ierror(nerr), nextdrop
         integer*4 len_adir, idrp, iedt, jnav
@@ -6417,7 +6424,7 @@ c now tack on nextdrop to get final arawfile name.   whew.
         SUBROUTINE tstwrstn(ierror)
         parameter (nerr=50)
 
-        dll_export tstwrstn
+!GCC$ ATTRIBUTES DLLEXPORT :: tstwrstn
 !
         integer*4 ierror(nerr)
 
