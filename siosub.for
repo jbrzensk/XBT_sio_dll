@@ -1710,6 +1710,7 @@ c same min, check sec
        integer*4 idy,imn,iyr,len,i1,i2,i3,n
        real*4 x
 
+       afilen = ' '
        if(len_adir.gt.0) afilen(1:len_adir) = adir(1:len_adir)
 
        atemp = '000000.nav'
@@ -1787,76 +1788,57 @@ c same min, check sec
 !***************************************************
 !
         SUBROUTINE int2ch(ka,a,jpos,len)
-! translate integer to character, only works for +-xxxx or less
-! IN:    ka = integer*4 to be translated
-!        a = passed character string to write to
-!        jpos = integer*4 position in character string to start writing at
-! OUT:   len - integer*4 length of a
+! Convert integer ka to characters in a starting at position jpos.
+! Handles full integer range including negatives and zero.
+! IN:  ka   = integer*4 to convert
+!      a    = character string to write into
+!      jpos = starting position in a (1-based)
+! OUT: len  = number of characters written (digits + sign if negative)
 !
-!        na = # of places in ka
-
-       character*20 a1
        character*(*) a
-       integer*4 ka, len, jpos, i, i0,i1,i2,i3,i4,na
-
-       a1 = '                    '
-       len = 1
-       if(ka.lt.0) len = len + 1
-       if(abs(ka).le.9) go to 50
-       len = len + 1
-       if(abs(ka).le.99) go to 50
-       len = len + 1
-       if(abs(ka).le.999) go to 50
-       len = len + 1
-       if(abs(ka).le.9999) go to 50
-       len = len + 1
-       if(abs(ka).le.99999) go to 50
-       len = len + 1
-       if(abs(ka).le.999999) go to 50
-50       continue
-       a1(jpos:jpos+len-1) = a(jpos:jpos+len-1)
-       i = jpos
-       i0 = 0
-       i1 = 0
-       i2 = 0
-       i3 = 0
-       i4 = 0
-       if(ka.lt.0) then
-        write(a1(i:i),500) char(45)
-500        format(a1)
-        i = i + 1
-       endif
-       if(abs(ka).ge.0.and.abs(ka).lt.10) na = 1
-       if(abs(ka).ge.10.and.abs(ka).lt.100) na = 2
-       if(abs(ka).ge.100.and.abs(ka).lt.1000) na = 3
-       if(abs(ka).ge.1000.and.abs(ka).lt.10000) na = 4
-       if(abs(ka).ge.10000.and.abs(ka).lt.100000) na = 5
-       if(na.ge.5) then
-        i0 = abs(ka)/10000
-         write(a1(i:i),500) char(i0+48)
-        i = i + 1
-       endif
-       if(na.ge.4) then
-        i1 = (abs(ka) - i0*10000)/1000
-         write(a1(i:i),500) char(i1+48)
-        i = i + 1
-       endif
-       if(na.ge.3) then
-        i2 = (abs(ka) - i0*10000 - i1*1000)/100
-         write(a1(i:i),500) char(i2+48)
-        i = i + 1
-       endif
-        if(na.ge.2) then
-        i3 = (abs(ka) - i0*10000 - i1*1000 - i2*100)/10
-         write(a1(i:i),500) char(i3+48)
-        i = i + 1
-       endif
-       if(na.ge.1) then
-        i4 = mod(abs(ka),10)
-         write(a1(i:i),500) char(i4+48)
-       endif
-       a(jpos:jpos+len-1) = a1(jpos:jpos+len-1)
-10       return
+       integer*4 ka, jpos, len
+       character*12 tmp
+       integer*4 i, j, kabs, ndig, idig
+!
+       kabs = abs(ka)
+!
+! Count digits needed (ka=0 needs 1 digit)
+       if(kabs .eq. 0) then
+           ndig = 1
+       else
+           ndig = 0
+           j = kabs
+           do while (j .gt. 0)
+               ndig = ndig + 1
+               j = j / 10
+           end do
+       end if
+!
+! Total length includes sign character for negatives
+       len = ndig
+       if(ka .lt. 0) len = len + 1
+!
+! Build digit characters right-to-left in tmp
+       if(kabs .eq. 0) then
+           tmp(len:len) = char(48)
+       else
+           j = kabs
+           do i = len, len - ndig + 1, -1
+               idig = mod(j, 10)
+               tmp(i:i) = char(idig + 48)
+               j = j / 10
+           end do
+       end if
+!
+! Write sign if negative
+       if(ka .lt. 0) tmp(1:1) = char(45)
+!
+! Copy result to output string at requested position
+       do i = 1, len
+           a(jpos+i-1:jpos+i-1) = tmp(i:i)
+       end do
+!
+       return
        end
 !
 !*********************************************
