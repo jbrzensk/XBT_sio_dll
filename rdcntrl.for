@@ -187,7 +187,7 @@
          elseif(j.eq.3) then
 ! skip operator name
 ! 21jul2014 try to add back 'debug' !
-            if(acut(1:5).eq.'debug') then
+            if(acut(1:5).eq.'debug'.or.acut(1:5).eq.'DEBUG') then
                ierror(33)=6
             endif
 
