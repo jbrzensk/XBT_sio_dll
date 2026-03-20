@@ -216,17 +216,22 @@
         integer*4 idhr, idmin, idsec
 !
 ! DIAGNOSTIC
-        open(98,file='C:\Users\Public\sio_called.txt',
-     $       form='formatted',status='unknown')
+        open(98,file='C:\Temp\sio_called.txt',
+     $       form='formatted',status='unknown',err=9997)
         write(98,*) 'siobegin called'
         close(98)
+9997    continue
 ! END DIAGNOSTIC
         speed = -0.00009
         dir = 0.0
         nplan = 0
+        iplancnt = 0    ! BRZENSKI initialize to zero, prevent garbage.
+        nextdrop = 0
         iw = 0                    ! iw=0 no write to log, iw=1 write to log
 ! fill xlatload with 999.0 for no value
 ! (-99.0 will not work since that is a valid west longitude)
+!   guard against caller passing uninitialized isio_skip_count:
+        if(isio_skip_count.lt.0) isio_skip_count = 0
         do 5 i = 1, 12
          xlatload(i) = 999.0
 5       continue
@@ -251,6 +256,13 @@
            ierror(35) = 317
            go to 999
         endif
+
+! initialize all path strings to spaces to prevent garbage chars in filenames
+        asio      = ' '
+        astations = ' '
+        aplan     = ' '
+        anavtrk   = ' '
+        acontrol  = ' '
 
         if(len_adir.gt.0) then
            asio(1:len_adir) = adir(1:len_adir)
@@ -293,10 +305,18 @@
 ! iw=0 no write to log, iw=1 write to log
         iw = 0
         ifile = 33
-        open(ifile,file=asio,form='formatted',status='unknown',err=333)
+! force-close unit 33 in case sioloop left it open (concurrent call)
+        close(ifile,iostat=ios)
+        open(ifile,file=asio,form='formatted',access='append',
+     $       status='unknown',err=333,iostat=ios)
         iw = 1                   ! success open log file, set to write
         go to 334
 333     ierror(44) = 1           ! error open log file, do not write
+! write open failure reason to diagnostic file
+        open(98,file='C:\Temp\sio_called.txt',
+     $       form='formatted',status='unknown',err=334)
+        write(98,*)'siobegin log open failed, iostat=',ios
+        close(98)
 334     continue
         if(iw.eq.1) then  
          write(ifile,*,err=335)'IN SIOBEGIN'
@@ -934,8 +954,10 @@ c should never happen!
 ! read the next position in plan.dat!  Skip the one *I* say we should do
 
         if(iwait.eq.1) then
-! isio_skip_count _should_ always be zero here...
-          iplancnt = iplancnt + isio_skip_count
+! isio_skip_count should always be zero for normal run - do not modify iplancnt
+          if(iw.eq.1.and.isio_skip_count.ne.0)write(ifile,*)
+     $      'WARNING: iwait=1 but isio_skip_count=',isio_skip_count,
+     $      ' - ignoring'
 
 ! comment out iwait=2 and iwait=3 will never happen:
 !        elseif(iwait.eq.2) then
@@ -954,9 +976,11 @@ c should never happen!
 ! 02jun2006 LL
 ! hmm.   iwait=4 - send drop flag now, inc iplancnt by skipcount only!
         elseif(iwait.eq.4) then
-          iplancnt = iplancnt + isio_skip_count
+          if(isio_skip_count.gt.0.and.isio_skip_count.lt.1000)
+     $      iplancnt = iplancnt + isio_skip_count
 
         elseif(iwait.eq.5) then
+          if(isio_skip_count.gt.0.and.isio_skip_count.lt.1000) then
           do 109 i = 1, isio_skip_count
              read(13,500,err=316,end=317) aplanline
              CALL decodeplan(aplanline,latd,xlatm,alath,ierrplan,
@@ -970,11 +994,14 @@ c should never happen!
 109       continue
           CALL deg2dec(latd,xlatm,alath,xlat)
           if(aspec.eq.'lon') xlon = xlat
+          endif
         elseif(iwait.eq.6) then
-          iplancnt = iplancnt + isio_skip_count
+          if(isio_skip_count.gt.0.and.isio_skip_count.lt.1000)
+     $      iplancnt = iplancnt + isio_skip_count
 ! if iwait.eq.7 this means last drop failed chkprof!
         elseif(iwait.eq.7) then
-          iplancnt = iplancnt + isio_skip_count
+          if(isio_skip_count.gt.0.and.isio_skip_count.lt.1000)
+     $      iplancnt = iplancnt + isio_skip_count
           if(iw.eq.1)write(ifile,*)'since iwait=7, idrp= ',idrp
         endif
 
@@ -1109,15 +1136,38 @@ c should never happen!
      $             'first 2 positions in plan.dat are equal, not good'
         go to 999
 ! 161=error opening navtrk.dat
-! don't alarm on this one
+! don't alarm on this one - navtrk.dat may not exist yet on first run
+! fall back to nav file data and continue (do NOT exit siobegin)
 161     ierror(23) = 1         !error opening navtrk.dat, do not alarm on this one
         if(iw.eq.1)write(ifile,*)' error opening navtrk.dat '
-        go to 999
+        if(inavfile.ne.2) then
+          idayave = navday
+          imonave = navmon
+          iyerave = navyear
+          timeave = float(navhr*3600 + navmin*60 + navsec)
+          CALL deg2dec(ilatdnav,xlatmnav,alathnav,vlat)
+          CALL deg2dec(ilondnav,xlonmnav,alonhnav,vlon)
+          speed = speednav
+          dir = dirnav
+          if(iw.eq.1)write(ifile,*)' using nav file pos as fallback'
+        endif
+        go to 266
 ! 162=error reading navtrk.dat
 ! don't alarm on this one
 162     ierror(24) = 1              ! error reading navtrk.dat, do not alarm on this one
         if(iw.eq.1)write(ifile,*)' error reading navtrk.dat '
-        go to 999
+        if(inavfile.ne.2) then
+          idayave = navday
+          imonave = navmon
+          iyerave = navyear
+          timeave = float(navhr*3600 + navmin*60 + navsec)
+          CALL deg2dec(ilatdnav,xlatmnav,alathnav,vlat)
+          CALL deg2dec(ilondnav,xlonmnav,alonhnav,vlon)
+          speed = speednav
+          dir = dirnav
+          if(iw.eq.1)write(ifile,*)' using nav file pos as fallback'
+        endif
+        go to 266
 !
 107     ierror(25) = 1              ! error opening stations.dat (add back 08sep2014)
         ierror(35) = 325
@@ -1303,6 +1353,11 @@ c should never happen!
 
         iw = 0                    ! iw=0 no write to log, iw=1 write to log
         deg2rad = 3.141592654/180.0
+        do i = 1, 80
+           asio(i:i) = ' '
+           anavtrk(i:i) = ' '
+           adir(i:i) = ' '
+        end do
 !
 ! get seas2k path:
         CALL getdir(adir,len_adir,ierror,igderr)
@@ -1359,6 +1414,8 @@ c should never happen!
            icsec1 = idsec2
            gpssec = idsec2
            idsec2 = 0
+           stoptime = 9.9e9 ! BRZENSKI Set this to a big number until we get a 
+                            !gps fix and can set it to something real
         endif
 
 ! FIX!   Ah - but what about a TIME associated with these:?!
@@ -1419,6 +1476,7 @@ c should never happen!
          CALL getdat(j1,j2,j3)
          if(iw.eq.1)write(ifile,582)j3,j2,j1,idhr,idmin,idsec
 582      format(' pc ',i2,'/',i2,'/',i4,1x,i2,':',i2,':',i2)
+         if(iw.eq.1) call flush(ifile)     ! DIAG checkpoint A
 ! increment itime to reflect time that has past since last call:
          idchange = 0
          if(dtime.ge.dtime1) then
@@ -1500,6 +1558,8 @@ c should never happen!
 
         if(icyear.gt.2000) iiyergps = icyear - 2000
         if(iyerave.gt.2000) iiyerave = iyerave - 2000
+        if(iw.eq.1) write(ifile,*)'diag A2: aft getfilen'    ! DIAG
+        if(iw.eq.1) call flush(ifile)                         ! DIAG
 
 ! translate iplandir to aplandir
         if(iplandir.eq.1) then
@@ -1558,14 +1618,22 @@ c should never happen!
          xlon = xlatload360(1)
         endif
 !
+        if(iw.eq.1) write(ifile,*)'diag A3: bef int2ch'       ! DIAG
+        if(iw.eq.1) call flush(ifile)                          ! DIAG
 ! get pc date (getdat uses i*2): j1=4 digit year, j2=month, j3=day
 ! 10feb2004 NO MORE, Now use JB passed in day/time:
 ! JB sends in 4 digit
          i1 = int(cyear)
+        if(iw.eq.1) write(ifile,*)'diag A3a cyear=',cyear    ! DIAG
+        if(iw.eq.1) call flush(ifile)                         ! DIAG
 ! turn pc 4 digit year into a 4 char string
-         CALL int2ch(i1,a4,1,4)
+         CALL int2ch(i1,a4,1,len)
+        if(iw.eq.1) write(ifile,*)'diag A3b aft int2ch'      ! DIAG
+        if(iw.eq.1) call flush(ifile)                         ! DIAG
 ! back to real - but only translate back last 2 digits...
          CALL ch2real(a4,3,2,x)
+        if(iw.eq.1) write(ifile,*)'diag A3c aft ch2real'     ! DIAG
+        if(iw.eq.1) call flush(ifile)                         ! DIAG
 ! icyr: seas 2 digit year, imo: month, iday: day
          icyr = int(x)
 ! idhr: i for integer, d for dos (pc), hr for hour.
@@ -1578,6 +1646,8 @@ c should never happen!
           icsec = int(csec)
 ! ctime: current gps time in hours
           ctime = chr + (cmin/60.0) + (csec/3600.0)
+        if(iw.eq.1) write(ifile,*)'diag A3d ctime=',ctime    ! DIAG
+        if(iw.eq.1) call flush(ifile)                         ! DIAG
 
 ! FIX FIX!!!!!!!:-
          if(igps.eq.2) then
@@ -1593,9 +1663,15 @@ c should never happen!
 ! increment ibuf if gps updating
           if(iupdate.eq.1) then
            ibuf = ibuf + 1
+        if(iw.eq.1) write(ifile,*)'diag A3e ibuf=',ibuf      ! DIAG
+        if(iw.eq.1) call flush(ifile)                         ! DIAG
            timetag = (chr + (cmin/60.0) + (csec/3600.0))*3600.0
            CALL deg2dec(int(clatd),clatm,aclath,clat)
+        if(iw.eq.1) write(ifile,*)'diag A3f clat=',clat      ! DIAG
+        if(iw.eq.1) call flush(ifile)                         ! DIAG
            CALL deg2dec(int(clond),clonm,aclonh,clon)
+        if(iw.eq.1) write(ifile,*)'diag A3g clon=',clon      ! DIAG
+        if(iw.eq.1) call flush(ifile)                         ! DIAG
            if(iw.eq.1.and.ierrlev.eq.6)then
             write(ifile,*)'csec=',int(csec),'timetag=',timetag
             write(ifile,*)'clat=',clat,' clon=',clon
@@ -1614,13 +1690,23 @@ c should never happen!
               if(iw.eq.1.and.ierrlev.eq.6) then
                 write(ifile,*)'ad buf,ibuf=', ibuf
              endif
+        if(iw.eq.1) write(ifile,*)'diag A3h bef ctagbuf'     ! DIAG
+        if(iw.eq.1) call flush(ifile)                         ! DIAG
              ctagbuf(ibuf) = timetag
+        if(iw.eq.1) write(ifile,*)'diag A3i bef clonbuf'     ! DIAG
+        if(iw.eq.1) call flush(ifile)                         ! DIAG
              clonbuf(ibuf) = clon
+        if(iw.eq.1) write(ifile,*)'diag A3j bef clatbuf'     ! DIAG
+        if(iw.eq.1) call flush(ifile)                         ! DIAG
              clatbuf(ibuf) = clat
+        if(iw.eq.1) write(ifile,*)'diag A3k aft clatbuf'     ! DIAG
+        if(iw.eq.1) call flush(ifile)                         ! DIAG
            endif
           endif  !iupdate=1
          endif   !igps=1
 
+        if(iw.eq.1) write(ifile,*)'diag A4: aft GPS buf'      ! DIAG
+        if(iw.eq.1) call flush(ifile)                          ! DIAG
          if(iupdate.eq.0) then
 ! 17aug2006 new - check gps seconds for a change and skip this loop
 !                 if we are updating (DANGER DANGER WILL ROBINSON...)
@@ -1651,6 +1737,8 @@ c should never happen!
 !
 750     continue
 !
+        if(iw.eq.1) write(ifile,*)'diag A5: bef gpssec'       ! DIAG
+        if(iw.eq.1) call flush(ifile)                          ! DIAG
         if(iw.eq.1.and.ierrlev.eq.6) write(ifile,577) inav,iaveflg,ispd
 577        format('inav=',i1,' iaveflg=',i1,' ispd=',i1)
 !
@@ -1873,6 +1961,8 @@ c should never happen!
 !
           gpssec = gpssec1
 59         continue
+         if(iw.eq.1) write(ifile,*)'diag B: past gps/inav'  ! DIAG
+         if(iw.eq.1) call flush(ifile)                        ! DIAG
 !
 ! Dead reckoning:          
 ! calculate longitude and eta of next xbt drop if aspec=lat (ispec(1)=1)
@@ -2054,8 +2144,12 @@ c
 ! so here, vlat and vlat1 are the same before calling newpos:
 ! the "change" here is what is important.   Going in and out of sioloop means
 ! "change" will be screwy.   How to handle?
+             if(iw.eq.1) write(ifile,*)'diag C: bef newpos1'  ! DIAG
+             if(iw.eq.1) call flush(ifile)                     ! DIAG
              CALL newpos(speed,change,dir,vlat,vlat1,vlon1,aclath,
      $                    ierrlev,ifile)
+             if(iw.eq.1) write(ifile,*)'diag D: aft newpos1'  ! DIAG
+             if(iw.eq.1) call flush(ifile)                     ! DIAG
              if(aclath.eq.'N') iclath = 1
              if(aclath.eq.'S') iclath = 3
 !             if(iw.eq.1.and.ierrlev.eq.6) write(ifile,*)'1aft newpos', vlat1, vlon1,
@@ -2072,10 +2166,14 @@ c
               write(ifile,*)'   nplan=',nplan,' ispec(1)=',ispec(1)
               write(ifile,*)'   xlat=',xlat,'xlon=',xlon
              endif
+             if(iw.eq.1) write(ifile,*)'diag E: bef xbteta1'  ! DIAG
+             if(iw.eq.1) call flush(ifile)                     ! DIAG
               CALL xbteta(xlatload360,vlat1,vlon1,speed,
      $                      dir,ctime,ispec,nplan,
      $                      xlat,xlon,ixhr,ixmin,ixsec,ierrlev,
      $                      nlnchr,eta,ifile)
+             if(iw.eq.1) write(ifile,*)'diag F: aft xbteta1'  ! DIAG
+             if(iw.eq.1) call flush(ifile)                     ! DIAG
 !              if(iw.eq.1.and.ierrlev.eq.6) then
 !               write(ifile,*) 'after xlatload, etas:'
 !               do 6000 ie = 1, nlnchr
@@ -2254,6 +2352,8 @@ c
            drlon = 360.0 - drlon
         endif
 90      continue
+         if(iw.eq.1) write(ifile,*)'diag G: at lbl 90'       ! DIAG
+         if(iw.eq.1) call flush(ifile)                         ! DIAG
 c 28jan2004 - moved this here - will it work?:
 ! Here is the normal exit from program once reached xbt location:
 ! 20jul2004 - add - if(ierror(21)=0) because if ierror(21)=1 we've
@@ -2291,6 +2391,8 @@ c 28jan2004 - moved this here - will it work?:
         go to 101
 
 101        continue
+         if(iw.eq.1) write(ifile,*)'diag H: at lbl 101'      ! DIAG
+         if(iw.eq.1) call flush(ifile)                         ! DIAG
 !
          if(iw.eq.1) then
           write(ifile,587)speed, dir
@@ -2440,6 +2542,7 @@ c 28jan2004 - moved this here - will it work?:
         integer*4 iSIOSpeedAveMin
         integer*4 i
         integer*4 ierr,iderr
+        integer*4 jpos,len,len_adir
 !
 ! file numbers opened and closed in sioend:
 !       10=<date>.nav   (write)
@@ -2473,6 +2576,12 @@ c 28jan2004 - moved this here - will it work?:
 !11sep2014 rm zero out ierror from this routine
 !
         iw = 0                    ! iw=0 no write to log, iw=1 write to log
+        do i = 1, 80
+           asio(i:i) = ' '
+           anavtrk(i:i) = ' '
+           afilen(i:i) = ' '
+           adir(i:i) = ' '
+        end do
 ! get seas2k path:
         CALL getdir(adir,len_adir,ierror,igderr)
 ! if I can't open or read file 'siodir', assume current directory?
@@ -2481,7 +2590,7 @@ c 28jan2004 - moved this here - will it work?:
            len_adir = 0
            ierror(35) = 307
            go to 999
-        endif 
+        endif
         if(ierror(17).eq.1) then
            len_adir = 0
            ierror(35) = 317
@@ -2805,6 +2914,7 @@ c 28jan2004 - moved this here - will it work?:
         integer*4 iprofcnt
         integer*4 iyr, imo, iday, ihr,imin,isec,len_adir
         integer*4 igderr(3)
+        integer*4 launcher(12)
 !
 ! file numbers opened and closed in gpspos:
 !        7=stations.dat (read and write)
@@ -2857,6 +2967,12 @@ c 28jan2004 - moved this here - will it work?:
            go to 999
         endif 
 !
+! initialize all path strings to spaces to prevent garbage chars in filenames
+        agpspos   = ' '
+        astations = ' '
+        acontrol  = ' '
+        f1        = ' '
+
         if(len_adir.gt.0) then
            agpspos(1:len_adir) = adir(1:len_adir)
            astations(1:len_adir) = adir(1:len_adir)
@@ -3577,6 +3693,7 @@ c 28jan2004 - moved this here - will it work?:
         character adir*80, achkprof*80, astations*80
         character acontrol*80
         integer*4 igderr(3)
+        integer*4 launcher(12)
         integer*4 ichkprof, i, ichk, iedt, npts, nptsrms
 
 ! tdzmx is maximum allowed displacement
@@ -3612,6 +3729,10 @@ c 28jan2004 - moved this here - will it work?:
            go to 999
         endif
 !
+        achkprof  = ' '
+        astations = ' '
+        acontrol  = ' '
+        f1        = ' '
         if(len_adir.gt.0) then
            achkprof(1:len_adir) = adir(1:len_adir)
            astations(1:len_adir) = adir(1:len_adir)
@@ -4319,8 +4440,10 @@ c 28jan2004 - moved this here - will it work?:
         real*4 tm_pl_mx, tm_pl_mn
         character*7 acruise
 !
-        integer*4 iw, ifile
+        integer*4 iw, ifile, len
         integer*4 igderr(3)
+        integer*4 len_adir, len_f1, i
+        integer*4 launcher(12)
 
         iw = 0                    ! iw=0 no write to log, iw=1 write to log
 ! 21jul2014: zero out error array:
@@ -4331,6 +4454,14 @@ c 28jan2004 - moved this here - will it work?:
 
         do 5 i = 1, 80
 5          f1(i:i) = ' '
+
+        do i = 1, 80
+           adir(i:i) = ' '
+           awrdrpstn(i:i) = ' '
+           astations(i:i) = ' '
+           acontrol(i:i) = ' '
+           asst(i:i) = ' '
+        end do
 
 ! get seas2k path: (recall getdir clears ierror:7,17 and set if needed)
         CALL getdir(adir,len_adir,ierror,igderr)
@@ -4570,7 +4701,7 @@ c 28jan2004 - moved this here - will it work?:
         endif
 ! iyer came in as 4 digit integer, change to 4 digit char, then
 !  copy the last 2 digits
-        CALL int2ch(iyer,chr4,1,4)
+        CALL int2ch(iyer,chr4,1,len)
         ayer(1:2) = chr4(3:4)
         if(ihr.le.9) then
            write(ahr(2:2),'(i1)') ihr
@@ -4776,6 +4907,9 @@ c 28jan2004 - moved this here - will it work?:
         integer*4 igderr(3)
 
         character*80 adir, awrnavfls*80, anavtrk*80
+        adir = ' '
+        awrnavfls = ' '
+        anavtrk = ' '
         iw = 0                    ! iw=0 no write to log, iw=1 write to log
 ! 21jul2014: zero out error array:
 ! ?? IS ?? this is ok for ierror(35) ?because Gauge is sending me a 0?
@@ -5246,6 +5380,10 @@ c 28jan2004 - moved this here - will it work?:
            go to 999
         endif
 
+        astations = ' '
+        asst      = ' '
+        acontrol  = ' '
+        aprstat   = ' '
         if(len_adir.gt.0) then
            astations(1:len_adir) = adir(1:len_adir)
            asst(1:len_adir) = adir(1:len_adir)
@@ -5561,6 +5699,8 @@ c         and iskip = iskip...
            go to 999
         endif
 !
+        awrxmit   = ' '
+        astations = ' '
         if(len_adir.gt.0) then
            awrxmit(1:len_adir) = adir(1:len_adir)
            astations(1:len_adir) = adir(1:len_adir)
@@ -5884,6 +6024,9 @@ c         and iskip = iskip...
            go to 999
         endif
 !
+        aseas2s  = ' '
+        arawfile = ' '
+        acontrol = ' '
         if(len_adir.gt.0) then
            aseas2s(1:len_adir) = adir(1:len_adir)
            arawfile(1:len_adir) = adir(1:len_adir)
@@ -6313,11 +6456,13 @@ c now tack on nextdrop to get final arawfile name.   whew.
            go to 999
         endif
                     
+        asiotime  = ' '
+        astations = ' '
         if(len_adir.gt.0) then
            asiotime(1:len_adir) = adir(1:len_adir)
            astations(1:len_adir) = adir(1:len_adir)
         endif
-                                 
+
         asiotime(len_adir+1:len_adir+16) = 'Data\siotime.log'
         astations(len_adir+1:len_adir+17) = 'Data\stations.dat'
 !
@@ -6448,6 +6593,8 @@ c now tack on nextdrop to get final arawfile name.   whew.
         if(ierror(7).eq.1.or.ierror(17).eq.1) then
            len_adir = 0
         endif
+        awrdrpstn = ' '
+        astations = ' '
         if(len_adir.gt.0) then
            awrdrpstn(1:len_adir) = adir(1:len_adir)
            astations(1:len_adir) = adir(1:len_adir)
