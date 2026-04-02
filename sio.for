@@ -1869,21 +1869,22 @@ c should never happen!
 ! SEASS change - use 5 since she only updates every 10 seconds...
 ! note this ibuf.ge.5 is in TWO places....:
               if(ibuf.ge.5) then
-               if(s.ne.-99.0) speed = s
-               if(speed.gt.xmaxspd) then
-                do 778 ij = 1, ibuf
+               if(s.ne.-99.0) then
+                if(s.gt.xmaxspd) then
+                 do 778 ij = 1, ibuf
                   if(iw.eq.1.and.ierrlev.eq.6)write(ifile,*)clatbuf(ij),
      $                    clonbuf(ij), ctagbuf(ij)
-778             continue
-                ierror(11) = 1       ! calc'd speed greater than xmaxspd
+778              continue
+                 ierror(11) = 1      ! calc'd speed greater than xmaxspd
 ! BRZENSKI - if speed is greater than xmaxspd, restore previous good lat and lon
-                vlat = vlat_prev
-                vlon = vlon_prev
-                iaveflg = 0
-                ibuf = 0
-                go to 21     ! END of BRZENSKI vlat reset
-               else
-                speed = s
+                 vlat = vlat_prev
+                 vlon = vlon_prev
+                 iaveflg = 0
+                 ibuf = 0
+                 go to 21    ! END of BRZENSKI vlat reset
+                else
+                 speed = s
+                endif
                endif
                if(d.ne.-99.0) dir = d
               endif
@@ -1936,6 +1937,21 @@ c should never happen!
 !
               close(10,iostat=ios)
               if(iw.eq.1.and.ios.ne.0)write(ifile,*)'close10ios=',ios
+! write updated averaged position to navtrk.dat once per minute:
+              open(15,file=anavtrk,form='formatted',status='unknown',
+     $            err=553,iostat=ios)
+              rewind(15,iostat=ios)
+              write(15,510,err=554)adosday,adosmon,adosyear(3:4),
+     $                             ihr,imin,isec,vlat,vlon,speed,dir
+510           format(a2,'/',a2,'/',a2,' ',i2,':',i2,':',i2,
+     $               ' ',f7.3,f8.3,f6.2,f7.2)
+              close(15,iostat=ios)
+              go to 555
+553           ierror(23) = 1
+              go to 555
+554           ierror(14) = 1
+              close(15,iostat=ios)
+555           continue
               go to 21        ! if here, all is well so skip setting errors
 !
 19            ierror(5) = 1       ! error opening date.nav

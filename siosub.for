@@ -2359,13 +2359,21 @@ c put a 0 in front of decimal pt if number less than 0
         else
           eta = distld/speed
         endif
-! eta in hour to next probes:
+! Check if this position is already behind us — if so, eta is negative.
+! For lon plan (ispec=0): x=sin(dir), dxlonld=vlon1-drop. Same sign → passed.
+! For lat plan (ispec=1): x=cos(dir), dxlatld=vlat1-drop. Same sign → passed.
+        if(ispec(i).eq.0) then
+          if(x*dxlonld.gt.0.0) eta = -eta
+        else
+          if(x*dxlatld.gt.0.0) eta = -eta
+        endif
+! eta in hours to next probes (negative = already passed):
         neta = neta + 1
         peta(neta) = eta
-!         if(ierrlev.ge.6) write(ifile,*) '  peta(',neta,')=',eta
+        if(ierrlev.ge.6) write(ifile,*) '  peta(',neta,')=',eta
 
 355      continue
-        
+
 360     continue
 100     continue
         return
