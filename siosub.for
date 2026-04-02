@@ -1045,13 +1045,19 @@ c new! 13jun2005
        real*4 xmin, x
        character*1 ahem
 
-       if(ahem.eq.'N'.or.ahem.eq.'E') then
-          x = real(ideg) + (xmin/60.0)
-       elseif(ahem.eq.'S') then
-          x = -1.0* (real(abs(ideg)) + (abs(xmin)/60.0))
-       elseif(ahem.eq.'W') then
-          x = 360.0 - (real(ideg) + (xmin/60.0))
-       endif
+              if(ahem.eq.'N'.or.ahem.eq.'E'.or.ahem.eq.'n'.or.ahem.eq.'e') then
+                 x = real(ideg) + (xmin/60.0)
+              elseif(ahem.eq.'S'.or.ahem.eq.'s') then
+                 x = -1.0* (real(abs(ideg)) + (abs(xmin)/60.0))
+              elseif(ahem.eq.'W'.or.ahem.eq.'w') then
+       ! If longitude is given as negative, just use the negative value
+                 if (ideg .lt. 0) then
+                    x = real(ideg) - (abs(xmin)/60.0)
+                 else
+                    x = 360.0 - (real(ideg) + (xmin/60.0))
+                 endif
+              endif
+       end select
        return
        end
 !
