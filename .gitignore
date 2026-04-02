@@ -39,6 +39,9 @@
 
 # debug information files
 *.dwo
-
+*.claude
 .vs
 .vscode
+
+sio-win11-ifx.bat
+sio-win11compile.log  
