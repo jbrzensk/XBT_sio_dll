@@ -54,7 +54,7 @@
         integer*4 iw,ifile
 ! 06oct2006 iSIOsave new...
 !11aug2006 the save:
-       save tbuf,xltbuf,xlnbuf, iSIOsave, iSIOset
+       save tbuf,xltbuf,xlnbuf, iSIOsave, iSIOset, ylatsav, ylonsav
 
        deg2rad = 3.141592654/180.0
 
@@ -148,7 +148,7 @@
           write(ifile,*)'next yp=',yp
           write(ifile,*)'yfitlat=',yfitlat
        endif
-       if(ifirst.eq.1) ylatsav = yfitlat
+       ylatsav = yfitlat
 ! Putting current minutes average into vlat:
        vlat = yfitlat
        call dec2deg('lat',ideg,xlatm,avlath,vlat)
@@ -181,11 +181,7 @@
         write(ifile,*)'yplon=',yplon,' yp=',yp, 'yfit=',yfit
        endif
 ! 13jun2005 I really think this needs to be ylonsav=yfit!
-       if(ifirst.eq.1) then
-! this doesn't work:          ylonsav = yplon
-! so test this
-          ylonsav = yfit
-       endif
+       ylonsav = yfit
 ! Putting current minutes average into vlon:
        vlon = yfit
        call dec2deg('lon',ideg,xlonm,avlonh,vlon)
@@ -1037,27 +1033,22 @@ c new! 13jun2005
        SUBROUTINE deg2dec(ideg,xmin,ahem,x)
 ! translate degrees minutes hemi position to decimal
 ! IN:         ideg = integer degrees
-!         xmin = real minutes
-!         ahem = 1 char hemisphere
+!             xmin = real minutes
+!             ahem = 1 char hemisphere
 ! OUT:        x = decimal position
        
        integer*4 ideg
        real*4 xmin, x
        character*1 ahem
 
-              if(ahem.eq.'N'.or.ahem.eq.'E'.or.ahem.eq.'n'.or.ahem.eq.'e') then
-                 x = real(ideg) + (xmin/60.0)
-              elseif(ahem.eq.'S'.or.ahem.eq.'s') then
-                 x = -1.0* (real(abs(ideg)) + (abs(xmin)/60.0))
-              elseif(ahem.eq.'W'.or.ahem.eq.'w') then
-       ! If longitude is given as negative, just use the negative value
-                 if (ideg .lt. 0) then
-                    x = real(ideg) - (abs(xmin)/60.0)
-                 else
-                    x = 360.0 - (real(ideg) + (xmin/60.0))
-                 endif
-              endif
-       end select
+       ! Seperate out the different cases for ahem
+       if(ahem.eq.'N'.or.ahem.eq.'n'.or.ahem.eq.'E'.or.ahem.eq.'e') then
+           x = real(ideg) + (xmin/60.0)
+       elseif(ahem.eq.'S'.or.ahem.eq.'s') then
+           x = -1.0* (real(abs(ideg)) + (abs(xmin)/60.0))
+       elseif(ahem.eq.'W'.or.ahem.eq.'w') then
+           x = 360.0 - (real(ideg) + (xmin/60.0))
+       endif
        return
        end
 !
