@@ -317,6 +317,8 @@ contains
       x = -1.0 * (real(abs(ideg)) + (abs(xmin) / 60.0))
     else if (ahem == 'W' .or. ahem == 'w') then
       x = 360.0 - (real(ideg) + (xmin / 60.0))
+    else
+      x = 0.0  ! defensive: unexpected hemisphere character
     end if
 
   end subroutine deg2dec

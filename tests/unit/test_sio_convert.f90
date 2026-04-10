@@ -16,6 +16,9 @@ program test_sio_convert
   call test_ch2real_integer(failures)
   call test_lev_debug(failures)
   call test_lev_normal(failures)
+  call test_findspace_advances_i(failures)
+  call test_real2ch_decimal(failures)
+  call test_real2ch_integer(failures)
 
   if (failures == 0) then
     print *, 'test_sio_convert: ALL TESTS PASSED'
@@ -208,6 +211,52 @@ contains
       failures = failures + 1
     else
       print *, 'PASS test_lev_normal'
+    end if
+  end subroutine
+
+  ! findspace: 'abc def' starting at i=1 → ic=3 (3 non-space chars), i advances to 4 (space pos)
+  subroutine test_findspace_advances_i(failures)
+    integer, intent(inout) :: failures
+    character(len=10) :: aplan
+    integer :: i, ic
+    aplan = 'abc def   '
+    i = 1
+    call findspace(aplan, i, ic)
+    if (i /= 4 .or. ic /= 3) then
+      print *, 'FAIL test_findspace_advances_i: i=', i, ' ic=', ic, ' expected i=4 ic=3'
+      failures = failures + 1
+    else
+      print *, 'PASS test_findspace_advances_i'
+    end if
+  end subroutine
+
+  ! real2ch with nrx=2: 3.14 written to string starting at pos 1 → '3.14'
+  subroutine test_real2ch_decimal(failures)
+    integer, intent(inout) :: failures
+    character(len=20) :: a
+    integer :: len
+    a = '                    '
+    call real2ch(3.14, a, 1, 2, len)
+    if (a(1:4) /= '3.14' .or. len /= 4) then
+      print *, 'FAIL test_real2ch_decimal: a="', a(1:6), '" len=', len
+      failures = failures + 1
+    else
+      print *, 'PASS test_real2ch_decimal'
+    end if
+  end subroutine
+
+  ! real2ch with nrx=0: 42.0 → '42' (integer representation, no decimal point)
+  subroutine test_real2ch_integer(failures)
+    integer, intent(inout) :: failures
+    character(len=20) :: a
+    integer :: len
+    a = '                    '
+    call real2ch(42.0, a, 1, 0, len)
+    if (a(1:2) /= '42' .or. len /= 2) then
+      print *, 'FAIL test_real2ch_integer: a="', a(1:5), '" len=', len
+      failures = failures + 1
+    else
+      print *, 'PASS test_real2ch_integer'
     end if
   end subroutine
 
