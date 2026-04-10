@@ -345,6 +345,7 @@ contains
         exit
       end if
     end do
+    i = ii
 
   end subroutine findspace
 
