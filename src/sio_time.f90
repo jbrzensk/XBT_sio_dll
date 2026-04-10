@@ -109,32 +109,47 @@ contains
     end if
   end subroutine findtime
 
-  ! Convert year/month/day/hour/min/sec to year-day (day of year). sio.for:3550.
-  ! kkyr,kmo,kday,khr,kmn,ksc — input date/time
-  ! yrday — output: fractional day of year (e.g. Jan 2 noon = 2.5)
+  ! Convert year/month/day/hour/min/sec to days since Jan 1, 2000 (epoch=0).
+  ! sio.for:3550 — modernized: accepts 4-digit year, returns epoch-based value.
+  ! kkyr,kmo,kday,khr,kmn,ksc — input date/time (kkyr must be 4-digit year)
+  ! yrday — output: fractional days since Jan 1, 2000 (monotonically increasing
+  !          across years; differences in days, so multiply by 1440 for minutes)
+  ! NOTE: callers that used to pass 2-digit years must normalize to 4-digit first
+  !       (e.g. if yy < 87 then yyyy = 2000+yy, else yyyy = 1900+yy).
   subroutine yrdy(kkyr, kmo, kday, khr, kmn, ksc, yrday)
     integer, intent(in)  :: kkyr, kmo, kday, khr, kmn, ksc
     real,    intent(out) :: yrday
     integer :: days_in_month(12)
-    integer :: i, leap, doy
+    integer :: i, leap, doy, ydays, lcount
     data days_in_month / 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 /
-    ! Determine leap year
+    ! Gregorian leap year for this year
     leap = 0
     if (mod(kkyr, 4) == 0) then
       leap = 1
       if (mod(kkyr, 100) == 0 .and. mod(kkyr, 400) /= 0) leap = 0
     end if
     days_in_month(2) = 28 + leap
-    ! Sum full months before kmo
-    doy = 0
+    ! Day of year (1-based)
+    doy = kday
     do i = 1, kmo - 1
       doy = doy + days_in_month(i)
     end do
-    doy = doy + kday
-    ! Add fractional day from time
-    yrday = real(doy) + real(khr) / 24.0 &
-            + real(kmn) / (60.0 * 24.0) &
-            + real(ksc) / (3600.0 * 24.0)
+    ! Number of leap years in [2000, kkyr-1] using Gregorian formula.
+    ! Verified: lcount(2024)=6, lcount(2000)=0, lcount(2001)=1.
+    if (kkyr > 2000) then
+      ! Leap years in [2000, kkyr-1]: formula verified for 2001..2100+
+      ! The constant 484 = floor(1999/4) - floor(1999/100) + floor(1999/400) = 499-19+4
+      lcount = (kkyr-1)/4 - (kkyr-1)/100 + (kkyr-1)/400 - 484
+    else
+      lcount = 0
+    end if
+    ! Days from Jan 1, 2000 to Jan 1 of kkyr
+    ydays = (kkyr - 2000) * 365 + lcount
+    ! Total: full days to start of this date + fractional day
+    yrday = real(ydays) + real(doy - 1) &
+            + real(khr)  / 24.0 &
+            + real(kmn)  / 1440.0 &
+            + real(ksc)  / 86400.0
   end subroutine yrdy
 
   ! Convert timetag (seconds in GPS week) to hours/minutes/seconds. siosub.for:2172.

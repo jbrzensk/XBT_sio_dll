@@ -10,8 +10,11 @@ program test_sio_time
   call test_gettmtg_sunday_midnight(failures)
   call test_yrdy_jan1(failures)
   call test_yrdy_feb1_leap(failures)
+  call test_yrdy_mar1_nonleap(failures)
+  call test_yrdy_crossyear(failures)
   call test_compare_first_later(failures)
   call test_compare_first_earlier(failures)
+  call test_compare_equal(failures)
   call test_findtime_later(failures)
   call test_findtime_earlier(failures)
   call test_findtime_equal(failures)
@@ -81,10 +84,10 @@ contains
   subroutine test_yrdy_jan1(failures)
     integer, intent(inout) :: failures
     real :: yrday
-    ! Jan 1 00:00:00 = yearday 1.0
+    ! Jan 1 2024 = days since Jan 1, 2000: 24*365 + 6 leap years = 8766.0
     call yrdy(2024, 1, 1, 0, 0, 0, yrday)
-    if (abs(yrday - 1.0) > 0.01) then
-      print *, 'FAIL test_yrdy_jan1: yrday =', yrday, ' expected 1.0'
+    if (abs(yrday - 8766.0) > 0.01) then
+      print *, 'FAIL test_yrdy_jan1: yrday =', yrday, ' expected 8766.0'
       failures = failures + 1
     else
       print *, 'PASS test_yrdy_jan1'
@@ -94,13 +97,42 @@ contains
   subroutine test_yrdy_feb1_leap(failures)
     integer, intent(inout) :: failures
     real :: yrday
-    ! Feb 1 in leap year 2024 = day 32
+    ! Feb 1 2024 = 8766 + 31 = 8797.0
     call yrdy(2024, 2, 1, 0, 0, 0, yrday)
-    if (abs(yrday - 32.0) > 0.01) then
-      print *, 'FAIL test_yrdy_feb1_leap: yrday =', yrday, ' expected 32.0'
+    if (abs(yrday - 8797.0) > 0.01) then
+      print *, 'FAIL test_yrdy_feb1_leap: yrday =', yrday, ' expected 8797.0'
       failures = failures + 1
     else
       print *, 'PASS test_yrdy_feb1_leap'
+    end if
+  end subroutine
+
+  subroutine test_yrdy_mar1_nonleap(failures)
+    integer, intent(inout) :: failures
+    real :: yrday
+    ! Mar 1 2023 (non-leap): 23*365 + 6 leap yrs = 8401 + (31+28) = 8460.0
+    call yrdy(2023, 3, 1, 0, 0, 0, yrday)
+    if (abs(yrday - 8460.0) > 0.01) then
+      print *, 'FAIL test_yrdy_mar1_nonleap: yrday =', yrday, ' expected 8460.0'
+      failures = failures + 1
+    else
+      print *, 'PASS test_yrdy_mar1_nonleap'
+    end if
+  end subroutine
+
+  subroutine test_yrdy_crossyear(failures)
+    integer, intent(inout) :: failures
+    real :: yrday_dec31, yrday_jan1
+    ! Dec 31 2024 < Jan 1 2025 (monotonically increasing across year boundary)
+    ! Dec 31 2024: 2024 is leap (366 days), so day 366 = 8766 + 365 = 9131.0
+    call yrdy(2024, 12, 31, 0, 0, 0, yrday_dec31)
+    ! Jan 1 2025: 25*365 + 7 leap yrs = 9132.0
+    call yrdy(2025, 1, 1, 0, 0, 0, yrday_jan1)
+    if (yrday_jan1 <= yrday_dec31) then
+      print *, 'FAIL test_yrdy_crossyear: jan1_2025=', yrday_jan1, ' dec31_2024=', yrday_dec31
+      failures = failures + 1
+    else
+      print *, 'PASS test_yrdy_crossyear'
     end if
   end subroutine
 
@@ -166,6 +198,19 @@ contains
       failures = failures + 1
     else
       print *, 'PASS test_findtime_equal'
+    end if
+  end subroutine
+
+  subroutine test_compare_equal(failures)
+    integer, intent(inout) :: failures
+    integer :: iflg
+    ! identical date/time → iflg=0 (not strictly more recent)
+    call compare(1, 1, 2024, 12, 30, 45, 1, 1, 2024, 12, 30, 45, iflg)
+    if (iflg /= 0) then
+      print *, 'FAIL test_compare_equal: iflg =', iflg, ' expected 0'
+      failures = failures + 1
+    else
+      print *, 'PASS test_compare_equal'
     end if
   end subroutine
 
