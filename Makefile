@@ -29,7 +29,7 @@ INT_TESTS = \
     test_integration_nav \
     test_integration_core
 
-.PHONY: all dll unit_tests integration_tests clean
+.PHONY: all dll unit_tests integration_tests clean run_unit run_integration run_all
 
 all: dll unit_tests integration_tests
 
