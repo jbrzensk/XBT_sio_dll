@@ -1,7 +1,6 @@
 ! src/sio_io.f90
 module sio_io
-  use sio_convert, only: ch2real, dec2deg, deg2dec, findspace
-  use sio_time,    only: compare, findtime
+  use sio_convert, only: ch2real, findspace
   implicit none
   private
   public :: getdir, navopen, chknav, getfilen, decodeplan, rdcntrl
@@ -190,7 +189,7 @@ contains
     if (iw == 1) write(ifile, *) '  ichkdnav=', ichkdnav
 
     ! Don't recheck already-checked nav files
-    do i = 1, ichkdnav
+    do i = 1, min(ichkdnav, maxchk)
       if (iw == 1) write(ifile, *) '  chkdnav', i, '=', chkdnav(i)
       if (chkdnav(i)(1:6) == ftemp(1:6)) return
     end do
@@ -550,8 +549,10 @@ contains
     tm_pl_mn1      = 0.0
     tm_pl_mx1      = 30.0
     ichkprofdepth1 = 700
-    runsec         = 0.0
+    runsec          = 0.0
     iSIOSpeedAveMin = 0
+    acruise         = ' '
+    len_acruise     = 0
 
     ! Set launcher 1..12 = 1..12 as default
     do i = 1, nlnchrs
@@ -580,7 +581,7 @@ contains
     ! Peek at first line to detect format
     read(22, '(a)', iostat=ios) a72
     if (ios /= 0) then
-      if (i <= 3) ierror(16) = 1
+      ierror(16) = 1
       close(22, iostat=ios)
       return
     end if
