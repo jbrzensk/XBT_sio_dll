@@ -43,11 +43,18 @@ contains
     real    :: speed, dir
     real    :: x10, y10, t10, x
     real    :: ylatdif, ylondif
+    real    :: prev_ylat, prev_ylon
     integer :: jptr, icall, ifirst, ndeg, iptr
     integer :: i, ideg
     real    :: xlatm, xlonm
 
     deg2rad = 3.141592654 / 180.0
+
+    ! Guard against empty buffer (documented range is 1..200)
+    if (ibuf < 1) then
+      ierr = -1
+      return
+    end if
 
     ! Recover persistent counters from ierror
     jptr  = ierror(38)
@@ -122,9 +129,10 @@ contains
       yp(1) = (yfit - vlat) / (timeave1 - stime)
     end if
     if (yp(1) /= -99.0) yplat = 216000.0 * yp(1)
-    yfitlat = yfit
-    ylatsav = yfitlat
-    vlat    = yfitlat
+    yfitlat  = yfit
+    prev_ylat = ylatsav    ! read before overwriting (C3: save prev for sanity check)
+    ylatsav  = yfitlat
+    vlat     = yfitlat
     call dec2deg('lat', ideg, xlatm, avlath, vlat)
 
     ! Polynomial fit for longitude
@@ -138,8 +146,8 @@ contains
     x = 0.0
     call dp1vlu(1, 1, x, yfit, yp, b)
 
-    ! Fix up lon wrap artifact
-    if (yfit > 360.0) yfit = 360.0 - yfit
+    ! Fix up lon wrap artifact (subtract, not 360-yfit which would invert the sign)
+    if (yfit > 360.0) yfit = yfit - 360.0
 
     yp(1) = -99.0
     yplon = -99.0
@@ -148,8 +156,9 @@ contains
     end if
     if (yp(1) /= -99.0) yplon = 216000.0 * cos(yfitlat * deg2rad) * yp(1)
 
-    ylonsav = yfit
-    vlon    = yfit
+    prev_ylon = ylonsav    ! read before overwriting (C3: save prev for sanity check)
+    ylonsav   = yfit
+    vlon      = yfit
     call dec2deg('lon', ideg, xlonm, avlonh, vlon)
 
     ! Compute instantaneous speed and direction from polynomial derivatives
@@ -158,7 +167,7 @@ contains
     if (yplat /= -99.0) then
       speed = sqrt(yplat**2 + yplon**2)
       if (speed == 0.0) then
-        dir = acos(yplon) * (1.0 / deg2rad)
+        dir = acos(max(-1.0, min(1.0, yplon))) * (1.0 / deg2rad)
       else
         dir = acos(max(-1.0, min(1.0, yplon / speed))) * (1.0 / deg2rad)
       end if
@@ -183,10 +192,10 @@ contains
 
     if (iw == 1) write(ifile,*) 'current speed&dir=', speed, dir
 
-    ! Check for large position jump (DR sanity)
+    ! Check for large position jump (DR sanity) — compare with PREVIOUS fitted position
     if (ifirst /= 1) then
-      ylatdif = ylatsav - vlat
-      ylondif = ylonsav - vlon
+      ylatdif = prev_ylat - vlat
+      ylondif = prev_ylon - vlon
       if ( abs(ylatdif) > 1.0 .or. &
            (abs(ylondif) > 1.0 .and. abs(ylondif) < 350.0) ) then
         ierror(12) = 1
@@ -234,8 +243,8 @@ contains
 
     t10 = timeave - tbuf(iptr)
 
-    if (t10 > 650.0) then
-      ! Gap too large — fall back to instantaneous
+    if (t10 > 650.0 .or. t10 <= 0.0) then
+      ! Gap too large or non-positive (rollover/reset) — fall back to instantaneous
       s10 = speed
       d10 = dir
     else
@@ -243,7 +252,7 @@ contains
       y10 = 216000.0 * (vlat - xltbuf(iptr)) / t10
       s10 = sqrt(x10*x10 + y10*y10)
       if (s10 == 0.0) then
-        d10 = acos(x10) * (1.0 / deg2rad)
+        d10 = acos(max(-1.0, min(1.0, x10))) * (1.0 / deg2rad)
       else
         d10 = acos(max(-1.0, min(1.0, x10 / s10))) * (1.0 / deg2rad)
       end if
@@ -380,11 +389,10 @@ contains
     character(len=3), intent(out) :: aspec
     integer,          intent(out) :: ispec, iplandir
 
-    ! Suppress unused-variable warnings (vlat1, vlon1, ahemi kept for
-    ! API compatibility with callers that pass ship position).
-    if (.false.) then
-      if (vlat1 > 0.0 .or. vlon1 > 0.0 .or. ahemi == 'X') continue
-    end if
+    ! vlat1, vlon1, ahemi: API-compatibility arguments retained for callers
+    ! that pass ship position; not used in this implementation.
+    ! The references below prevent unused-argument warnings from -Wextra.
+    if (vlat1 + vlon1 < -1.0e30 .or. ahemi == char(0)) continue
 
     ! Determine whether plan is latitude-based or longitude-based
     if (alath == 'E' .or. alath == 'e' .or. &
@@ -448,7 +456,7 @@ contains
     ibad2  = 0
     ibufnew = 0
 
-    do i = 1, 70
+    do i = 1, ibuf
       imark(i) = 0
     end do
 

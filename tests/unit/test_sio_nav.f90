@@ -159,8 +159,9 @@ contains
     ! Heading east at 60 kt for 3600 sec starting at lon=359.5: should wrap to ~0.5
     vlat1 = 0.0; vlon1 = 359.5
     call newpos(60.0, 3600.0, 90.0, 0.0, vlat1, vlon1, aclath, 0, 0)
-    if (vlon1 > 360.0 .or. vlon1 < 0.0) then
-      print *, 'FAIL test_newpos_lon_wrap: vlon1=', vlon1, ' out of 0-360 range'
+    ! vlon1 = 359.5 + 1.0 = 360.5 → wraps to ~0.5
+    if (abs(vlon1 - 0.5) > 0.05) then
+      print *, 'FAIL test_newpos_lon_wrap: vlon1=', vlon1, ' expected ~0.5'
       failures = failures + 1
     else
       print *, 'PASS test_newpos_lon_wrap: vlon1=', vlon1
