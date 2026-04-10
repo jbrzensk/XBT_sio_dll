@@ -30,16 +30,16 @@ contains
   subroutine dpolft(n, x, y, w, maxdeg, ndeg, eps, r, ierr, a)
     integer, intent(in)    :: n, maxdeg
     real,    intent(in)    :: x(n), y(n)
-    real,    intent(inout) :: w(n), eps
+    real,    intent(inout) :: w(n), eps  ! NOTE: if w(1)<0 on entry, w is overwritten with 1.0 (Slatec behavior)
     integer, intent(out)   :: ndeg, ierr
     real,    intent(out)   :: r(n)
     real,    intent(inout) :: a(*)
 
     ! Local variables
-    integer :: i, idegf, j, jp1, jpas, k1, k1pj, k2, k2pj, k3, k3pi
-    integer :: k4, k4pi, k5, k5pi, ksig, m, mop1, nder, nfail
+    integer :: i, idegf, j, jp1, jpas = 0, k1, k1pj, k2, k2pj, k3, k3pi
+    integer :: k4, k4pi, k5, k5pi, ksig, m, mop1, nder, nfail = 0
     real    :: temd1, temd2
-    real    :: degf, den, etst, f, fcrit, sig, sigj, sigjm1, sigpas
+    real    :: degf, den, etst, f, fcrit, sig = 0.0, sigj, sigjm1, sigpas = 0.0
     real    :: temp, xm, w1, w11, yp_dummy(1)
 
     ! F-test critical-value coefficients (from original DATA statement)
@@ -320,7 +320,9 @@ contains
   !   x     - evaluation point
   !   yfit  - (out) value of polynomial at x
   !   yp(*) - (out) array of first through nder derivatives
-  !   a(*)  - work array from DPOLFT
+  !   a(*)  - work array from DPOLFT; NOTE: used as scratch space and modified,
+  !           so polynomial cannot be evaluated at multiple points without
+  !           calling dpolft again
   ! ---------------------------------------------------------------------------
   subroutine dp1vlu(l, nder, x, yfit, yp, a)
     integer, intent(in)  :: l, nder
@@ -331,7 +333,7 @@ contains
     ! Local variables
     integer :: i, ic, ilo, in, inp1, iup, k1, k1i, k2, k3, k3p1, k3pn
     integer :: k4, k4p1, k4pn, kc, lm1, lp1, maxord, n, ndo, ndp1, nord
-    real    :: cc, dif, val
+    real    :: cc, dif, val = 0.0
 
     ! --- Guard against invalid L ---
     if (l < 0) then
