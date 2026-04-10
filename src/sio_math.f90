@@ -163,7 +163,7 @@ contains
             ndeg = jpas
             sig  = sigpas
             a(k3) = ndeg
-            goto 90
+            exit degree_loop
           end if
           degf  = real(m - j - 1)
           den   = (co(4,ksig) * degf + 1.0) * degf
@@ -180,7 +180,7 @@ contains
               ndeg  = jpas
               sig   = sigpas
               a(k3) = ndeg
-              goto 90
+              exit degree_loop
             end if
           else
             ! Degree j fails F-test (label 25)
@@ -190,14 +190,14 @@ contains
               ndeg  = jpas
               sig   = sigpas
               a(k3) = ndeg
-              goto 90
+              exit degree_loop
             end if
             if (maxdeg == j) then
               ierr  = 4
               ndeg  = jpas
               sig   = sigpas
               a(k3) = ndeg
-              goto 90
+              exit degree_loop
             end if
           end if
         else
@@ -210,7 +210,7 @@ contains
             ndeg  = jpas
             sig   = sigpas
             a(k3) = ndeg
-            goto 90
+            exit degree_loop
           end if
         end if
 
@@ -221,7 +221,7 @@ contains
           ndeg  = j
           sig   = sigj
           a(k3) = ndeg
-          goto 90
+          exit degree_loop
         end if
 
       else
@@ -231,14 +231,14 @@ contains
           ndeg  = j
           sig   = sigj
           a(k3) = ndeg
-          goto 90
+          exit degree_loop
         end if
         if (maxdeg == j) then
           ierr  = 3
           ndeg  = maxdeg
           sig   = sigj
           a(k3) = ndeg
-          goto 90
+          exit degree_loop
         end if
       end if
 
@@ -298,7 +298,6 @@ contains
     end do degree_loop
 
     ! --- Post-loop: evaluate best polynomial at all data points if needed ---
-90  continue
     if (eps < 0.0 .and. ndeg /= maxdeg) then
       nder = 0
       do i = 1, m
