@@ -72,7 +72,7 @@ contains
     integer, intent(inout) :: failures
     character(len=80) :: afilen
     ! day=01 mon=06 year=2024 -> should contain "01" and "06"
-    call getfilen(afilen, '01', '06', '2024', 0, ' ')
+    call getfilen(afilen, '01', '06', '2024', 0, '                                                                                ')
     if (index(afilen, '01') == 0 .or. index(afilen, '06') == 0) then
       print *, 'FAIL test_getfilen_constructs_name: afilen="', trim(afilen), '"'
       failures = failures + 1

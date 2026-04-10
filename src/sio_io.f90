@@ -202,26 +202,33 @@ contains
     nread = 0
     do i = 1, n
       a64(i) = ' '
-      read(8, '(a64)', end=101, err=601, iostat=ios) a64(i)
+      read(8, '(a64)', iostat=ios) a64(i)
+      if (ios < 0) exit   ! EOF: nread = i-1 computed below
+      if (ios > 0) return ! read error: return immediately
 
       icha642 = ichar(a64(i)(2:2))
       if (icha642 /= 32) then
         ibad(i) = 0
-        read(a64(i), 556, err=90) kdy(i), kmo(i), kyr(i), khr(i), &
+        read(a64(i), 556, iostat=ios) kdy(i), kmo(i), kyr(i), khr(i), &
                                    kmn(i), ksc(i), klatd(i), xlatm(i), &
                                    alth(i), klond(i), xlonm(i), alnh(i), &
                                    speed(i), dir(i)
 556     format(6(i2,1x),i3,f8.4,a2,i4,f8.4,a2,4x,f6.2,f6.1)
-        ! Check date matches filename date
-        if ((kdy(i) /= iday) .or. (kmo(i) /= imo) .or. (kyr(i) /= iyr)) then
-          ibad(i) = 2
-          if (iw == 1) write(ifile, *) '  bad date'
+        if (ios /= 0) then
+          ibad(i) = 8
           ibadcntr = ibadcntr + 1
         else
-          ktimesec(i) = ksc(i) + 60*kmn(i) + 3600*khr(i)
-          if (ktimesec(i) < 0 .or. ktimesec(i) > 86400) then
-            ibad(i) = 4
+          ! Check date matches filename date
+          if ((kdy(i) /= iday) .or. (kmo(i) /= imo) .or. (kyr(i) /= iyr)) then
+            ibad(i) = 2
+            if (iw == 1) write(ifile, *) '  bad date'
             ibadcntr = ibadcntr + 1
+          else
+            ktimesec(i) = ksc(i) + 60*kmn(i) + 3600*khr(i)
+            if (ktimesec(i) < 0 .or. ktimesec(i) > 86400) then
+              ibad(i) = 4
+              ibadcntr = ibadcntr + 1
+            end if
           end if
         end if
       else
@@ -229,12 +236,7 @@ contains
         if (iw == 1) write(ifile, *) '  blank line'
         ibadcntr = ibadcntr + 1
       end if
-      cycle
-90    ibad(i) = 8
-      ibadcntr = ibadcntr + 1
     end do
-
-101 continue
     nread = i - 1
     if (iw == 1) write(ifile, *) '  ibadcntr=', ibadcntr, ' nread=', nread
 
@@ -334,9 +336,6 @@ contains
       end if
     end if
 
-    return
-
-601 continue
     return
 
   end subroutine chknav
@@ -593,7 +592,11 @@ contains
       if (iw == 1) write(ifile, *) 'In rdcntrl,rd cntrl.dat:'
 
       do i = 1, nlines
-        read(22, '(a)', end=301, err=301, iostat=ios) a72
+        read(22, '(a)', iostat=ios) a72
+        if (ios /= 0) then
+          if (i <= 3) ierror(16) = 1
+          exit
+        end if
         if (iw == 1) write(ifile, *) i, a72
 
         do j = 1, nlines
@@ -640,7 +643,7 @@ contains
             case (3)
               ! operator name — check for "debug"
               if (acut(1:5) == 'debug' .or. acut(1:5) == 'DEBUG') then
-                ierror(33) = 6
+                ierror(33) = 1
               end if
 
             case (4)
@@ -740,8 +743,6 @@ contains
         tm_pl_mx = tm_pl_mx1
       end if
 
-      go to 900
-
     ! ---- Old format ----
     else
 
@@ -817,12 +818,6 @@ contains
 
     end if  ! new vs old format
 
-    go to 900
-
-301 if (i <= 3) ierror(16) = 1
-    go to 900
-
-900 continue
     close(22, iostat=ios)
     if (iw == 1) then
       write(ifile, *) 'close22ios=', ios
