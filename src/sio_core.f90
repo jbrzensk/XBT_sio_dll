@@ -67,6 +67,7 @@ contains
     real :: ylatd, ylatm, ylata, ylond, ylonm
     character(len=7) :: acruise
     integer :: len_f1
+    logical :: found_interp, need_extrap
 
     f1 = ' '
     iw = 0
@@ -120,7 +121,9 @@ contains
 
     if (ierror(33) == 6) ierrlev = 6
     if (ierror(15) /= 0 .or. ierror(16) /= 0) then
-      ireturn = 1; goto 999
+      ireturn = 1
+      call gpspos_cleanup(iw, ifile)
+      return
     end if
 
     f1(len_f1+1:len_f1+len_acruise) = acruise(1:len_acruise)
@@ -128,112 +131,90 @@ contains
     write(f1(len_f1+1:len_f1+5), '(a5)') 's.000'
 
     ! Main loop
-1   continue
-    open(7, file=astations, status='old', iostat=ios)
-    if (ios /= 0) then
-      ierror(25) = 1; ireturn = 1; goto 999
-    end if
+    do
+      open(7, file=astations, status='old', iostat=ios)
+      if (ios /= 0) then
+        ierror(25) = 1; ireturn = 1
+        call gpspos_cleanup(iw, ifile)
+        return
+      end if
 
-    if (ichoosedrop > 0) then
-      do kk = 1, ichoosedrop - 1
-        read(7, *, iostat=ios)
-        if (ios /= 0) then; ierror(3) = 1; ireturn = 1; goto 999; end if
-      end do
-      read(7, '(1x,a3,a58,i6,1x,a1)', iostat=ios) &
-           f1(len_f1+3:len_f1+5), chr58, inav, chr1
-      if (ios /= 0) then; ierror(3) = 1; ireturn = 1; goto 999; end if
-      iline = ichoosedrop
-    else
-      iline = 0
-      do i = 1, 1000
-        read(7, '(a4)', iostat=ios) ch4
-        if (ios /= 0) then; ierror(26) = 1; ireturn = 1; goto 999; end if
-        if (iprofcnt == 0 .and. ch4 == 'ENDD') then
-          ierror(3) = 1; ireturn = 1; goto 999
-        end if
-        if (iprofcnt /= 0 .and. ch4 == 'ENDD') goto 999
-        backspace(7)
+      if (ichoosedrop > 0) then
+        do kk = 1, ichoosedrop - 1
+          read(7, *, iostat=ios)
+          if (ios /= 0) then
+            ierror(3) = 1; ireturn = 1
+            call gpspos_cleanup(iw, ifile)
+            return
+          end if
+        end do
         read(7, '(1x,a3,a58,i6,1x,a1)', iostat=ios) &
              f1(len_f1+3:len_f1+5), chr58, inav, chr1
-        if (ios /= 0) then; ierror(26) = 1; ireturn = 1; goto 999; end if
-        iline = iline + 1
-        if (inav == 0) exit
-      end do
-    end if
-
-    ! read rest of stations.dat
-    iline2 = 0
-    do i = 1, 1000
-      read(7, '(a4)', iostat=ios) ch4
-      if (ios /= 0) exit
-      if (ch4 == 'ENDD') exit
-      backspace(7)
-      iline2 = iline2 + 1
-      read(7, '(a70)', iostat=ios) chr70(iline2)
-      if (ios /= 0) exit
-    end do
-    close(7)
-
-    read(chr58, '(14x,6(i2,1x))', iostat=ios) iday, imo, iyr, ihr, imin, isec
-    if (ios /= 0) then; ierror(26) = 1; ireturn = 1; goto 999; end if
-    call yrdy(iyr, imo, iday, ihr, imin, isec, yrdrop)
-
-    call navopen(iday, imo, iyr, ierr, fnav, adir, len_adir)
-
-    if (ierr >= 1) then
-      ! try previous day
-      iday = iday - 1
-      if (iday == 0) then
-        imo = imo - 1
-        if (imo == 0) then; iyr = iyr - 1; imo = 12; end if
-        iday = 31
-        if (imo == 4 .or. imo == 6 .or. imo == 9 .or. imo == 11) iday = 30
-        if (imo == 2 .and. mod(iyr, 4) /= 0) iday = 28
-        if (imo == 2 .and. mod(iyr, 4) == 0) iday = 29
+        if (ios /= 0) then
+          ierror(3) = 1; ireturn = 1
+          call gpspos_cleanup(iw, ifile)
+          return
+        end if
+        iline = ichoosedrop
+      else
+        iline = 0
+        do i = 1, 1000
+          read(7, '(a4)', iostat=ios) ch4
+          if (ios /= 0) then
+            ierror(26) = 1; ireturn = 1
+            call gpspos_cleanup(iw, ifile)
+            return
+          end if
+          if (iprofcnt == 0 .and. ch4 == 'ENDD') then
+            ierror(3) = 1; ireturn = 1
+            call gpspos_cleanup(iw, ifile)
+            return
+          end if
+          if (iprofcnt /= 0 .and. ch4 == 'ENDD') then
+            call gpspos_cleanup(iw, ifile)
+            return
+          end if
+          backspace(7)
+          read(7, '(1x,a3,a58,i6,1x,a1)', iostat=ios) &
+               f1(len_f1+3:len_f1+5), chr58, inav, chr1
+          if (ios /= 0) then
+            ierror(26) = 1; ireturn = 1
+            call gpspos_cleanup(iw, ifile)
+            return
+          end if
+          iline = iline + 1
+          if (inav == 0) exit
+        end do
       end if
-      call navopen(iday, imo, iyr, ierr, fnav, adir, len_adir)
-      if (ierr >= 1) then
-        ierror(5) = 1; ierror(34) = iday; ierror(36) = imo; ierror(37) = iyr
-        ireturn = 1; goto 999
-      end if
-      do i = 1, 10000
-        read(8, '(6(i2,1x),i3,f8.4,a2,i4,f8.4,a2,4x,f6.2,f6.1,i3)', iostat=ios) &
-             kday, kmo, kyr, khr, kmin, ksec, klat, zltm, clats, klon, zlnm, clons, spd, dir, nfix
+
+      ! read rest of stations.dat
+      iline2 = 0
+      do i = 1, 1000
+        read(7, '(a4)', iostat=ios) ch4
+        if (ios /= 0) exit
+        if (ch4 == 'ENDD') exit
+        backspace(7)
+        iline2 = iline2 + 1
+        read(7, '(a70)', iostat=ios) chr70(iline2)
         if (ios /= 0) exit
       end do
-      close(8)
-      call yrdy(kyr, kmo, kday, khr, kmin, ksec, yrsav)
-      goto 29
-    end if
+      close(7)
 
-    ! Read same-day nav
-    do i = 1, 10000
-      read(8, '(6(i2,1x),i3,f8.4,a2,i4,f8.4,a2,4x,f6.2,f6.1,i3)', iostat=ios) &
-           jday, jmo, jyr, jhr, jmin, jsec, jlat, xltm, clat, jlon, xlnm, clon, spd, dir, nfix
-      if (ios /= 0) exit
-      call yrdy(jyr, jmo, jday, jhr, jmin, jsec, yrnav)
-
-      if (i > 1 .and. yrsav <= yrdrop .and. yrnav > yrdrop) then
-        xlat = real(jlat) + xltm / 60.0
-        if (clat == ' S') xlat = -1.0 * xlat
-        xlon = real(jlon) + xlnm / 60.0
-        if (clon == ' W') xlon = 360.0 - xlon
-        zlat = real(klat) + zltm / 60.0
-        if (clats == ' S') zlat = -1.0 * zlat
-        zlon = real(klon) + zlnm / 60.0
-        if (clons == ' W') zlon = 360.0 - zlon
-        call interp(yrdrop, ylat, ylon, yrsav, zlat, zlon, yrnav, xlat, xlon)
-        tnav = (yrnav - yrsav) * 1440.0
-        tnav = max(tnav, 1.0)
-        close(8)
-        goto 102
+      read(chr58, '(14x,6(i2,1x))', iostat=ios) iday, imo, iyr, ihr, imin, isec
+      if (ios /= 0) then
+        ierror(26) = 1; ireturn = 1
+        call gpspos_cleanup(iw, ifile)
+        return
       end if
+      call yrdy(iyr, imo, iday, ihr, imin, isec, yrdrop)
 
-      yrsav = yrnav
-      klat = jlat; zltm = xltm; clats = clat
-      klon = jlon; zlnm = xlnm; clons = clon
+      call navopen(iday, imo, iyr, ierr, fnav, adir, len_adir)
 
-      if (i == 1 .and. yrnav > yrdrop) then
+      found_interp = .false.
+      need_extrap = .false.
+
+      if (ierr >= 1) then
+        ! try previous day
         iday = iday - 1
         if (iday == 0) then
           imo = imo - 1
@@ -243,158 +224,251 @@ contains
           if (imo == 2 .and. mod(iyr, 4) /= 0) iday = 28
           if (imo == 2 .and. mod(iyr, 4) == 0) iday = 29
         end if
-        close(8)
         call navopen(iday, imo, iyr, ierr, fnav, adir, len_adir)
         if (ierr >= 1) then
           ierror(5) = 1; ierror(34) = iday; ierror(36) = imo; ierror(37) = iyr
-          ireturn = 1; goto 999
+          ireturn = 1
+          call gpspos_cleanup(iw, ifile)
+          return
         end if
-        do kk = 1, 10000
+        do i = 1, 10000
           read(8, '(6(i2,1x),i3,f8.4,a2,i4,f8.4,a2,4x,f6.2,f6.1,i3)', iostat=ios) &
-               kday, kmo, kyr, khr, kmin, ksec, klat, zltm, clats, klon, zlnm, clon, spd, dir, nfix
+               kday, kmo, kyr, khr, kmin, ksec, klat, zltm, clats, klon, zlnm, clons, spd, dir, nfix
           if (ios /= 0) exit
         end do
-        call yrdy(kyr, kmo, kday, khr, kmin, ksec, yrsav)
         close(8)
-        xlat = real(jlat) + xltm / 60.0
-        if (clat == ' S') xlat = -1.0 * xlat
-        xlon = real(jlon) + xlnm / 60.0
-        if (clon == ' W') xlon = 360.0 - xlon
+        call yrdy(kyr, kmo, kday, khr, kmin, ksec, yrsav)
+        need_extrap = .true.
+      end if
+
+      if (.not. need_extrap) then
+        ! Read same-day nav
+        do i = 1, 10000
+          read(8, '(6(i2,1x),i3,f8.4,a2,i4,f8.4,a2,4x,f6.2,f6.1,i3)', iostat=ios) &
+               jday, jmo, jyr, jhr, jmin, jsec, jlat, xltm, clat, jlon, xlnm, clon, spd, dir, nfix
+          if (ios /= 0) exit
+          call yrdy(jyr, jmo, jday, jhr, jmin, jsec, yrnav)
+
+          if (i > 1 .and. yrsav <= yrdrop .and. yrnav > yrdrop) then
+            xlat = real(jlat) + xltm / 60.0
+            if (clat == ' S') xlat = -1.0 * xlat
+            xlon = real(jlon) + xlnm / 60.0
+            if (clon == ' W') xlon = 360.0 - xlon
+            zlat = real(klat) + zltm / 60.0
+            if (clats == ' S') zlat = -1.0 * zlat
+            zlon = real(klon) + zlnm / 60.0
+            if (clons == ' W') zlon = 360.0 - zlon
+            call interp(yrdrop, ylat, ylon, yrsav, zlat, zlon, yrnav, xlat, xlon)
+            tnav = (yrnav - yrsav) * 1440.0
+            tnav = max(tnav, 1.0)
+            close(8)
+            found_interp = .true.
+            exit
+          end if
+
+          yrsav = yrnav
+          klat = jlat; zltm = xltm; clats = clat
+          klon = jlon; zlnm = xlnm; clons = clon
+
+          if (i == 1 .and. yrnav > yrdrop) then
+            iday = iday - 1
+            if (iday == 0) then
+              imo = imo - 1
+              if (imo == 0) then; iyr = iyr - 1; imo = 12; end if
+              iday = 31
+              if (imo == 4 .or. imo == 6 .or. imo == 9 .or. imo == 11) iday = 30
+              if (imo == 2 .and. mod(iyr, 4) /= 0) iday = 28
+              if (imo == 2 .and. mod(iyr, 4) == 0) iday = 29
+            end if
+            close(8)
+            call navopen(iday, imo, iyr, ierr, fnav, adir, len_adir)
+            if (ierr >= 1) then
+              ierror(5) = 1; ierror(34) = iday; ierror(36) = imo; ierror(37) = iyr
+              ireturn = 1
+              call gpspos_cleanup(iw, ifile)
+              return
+            end if
+            do kk = 1, 10000
+              read(8, '(6(i2,1x),i3,f8.4,a2,i4,f8.4,a2,4x,f6.2,f6.1,i3)', iostat=ios) &
+                   kday, kmo, kyr, khr, kmin, ksec, klat, zltm, clats, klon, zlnm, clon, spd, dir, nfix
+              if (ios /= 0) exit
+            end do
+            call yrdy(kyr, kmo, kday, khr, kmin, ksec, yrsav)
+            close(8)
+            xlat = real(jlat) + xltm / 60.0
+            if (clat == ' S') xlat = -1.0 * xlat
+            xlon = real(jlon) + xlnm / 60.0
+            if (clon == ' W') xlon = 360.0 - xlon
+            zlat = real(klat) + zltm / 60.0
+            if (clats == ' S') zlat = -1.0 * zlat
+            zlon = real(klon) + zlnm / 60.0
+            if (clons == ' W') zlon = 360.0 - zlon
+            call interp(yrdrop, ylat, ylon, yrsav, zlat, zlon, yrnav, xlat, xlon)
+            tnav = (yrnav - yrsav) * 1440.0
+            tnav = max(tnav, 1.0)
+            found_interp = .true.
+            exit
+          end if
+        end do
+
+        if (.not. found_interp) then
+          ! last fix before drop - try next day
+          yrsav = yrnav
+          klat = jlat; zltm = xltm; clats = clat
+          klon = jlon; zlnm = xlnm; clons = clon
+          iday = iday + 1
+          if (iday == 32 .or. &
+              (iday == 31 .and. (imo == 4 .or. imo == 6 .or. imo == 9 .or. imo == 11)) .or. &
+              (iday == 29 .and. imo == 2 .and. mod(iyr, 4) /= 0) .or. &
+              (iday == 30 .and. imo == 2 .and. mod(iyr, 4) == 0)) then
+            iday = 1; imo = imo + 1
+            if (imo == 13) then; iyr = iyr + 1; imo = 1; end if
+          end if
+          close(8)
+          call navopen(iday, imo, iyr, ierr, fnav, adir, len_adir)
+          if (ierr >= 1) then
+            need_extrap = .true.
+          else
+            read(8, '(6(i2,1x),i3,f8.4,a2,i4,f8.4,a2,4x,f6.2,f6.1,i3)', iostat=ios) &
+                 jday, jmo, jyr, jhr, jmin, jsec, jlat, xltm, clat, jlon, xlnm, clon, spd, dir, nfix
+            if (ios /= 0) then
+              need_extrap = .true.
+            else
+              close(8)
+              call yrdy(jyr, jmo, jday, jhr, jmin, jsec, yrnav)
+              xlat = real(jlat) + xltm / 60.0
+              if (clat == ' S') xlat = -1.0 * xlat
+              xlon = real(jlon) + xlnm / 60.0
+              if (clon == ' W') xlon = 360.0 - xlon
+              zlat = real(klat) + zltm / 60.0
+              if (clats == ' S') zlat = -1.0 * zlat
+              zlon = real(klon) + zlnm / 60.0
+              if (clons == ' W') zlon = 360.0 - zlon
+              call interp(yrdrop, ylat, ylon, yrsav, zlat, zlon, yrnav, xlat, xlon)
+              tnav = (yrnav - yrsav) * 1440.0
+              tnav = max(tnav, 1.0)
+              found_interp = .true.
+            end if
+          end if
+        end if
+      end if
+
+      ! extrapolation
+      if (need_extrap) then
+        close(8, iostat=ios)
+        tnav = -1.0 * (yrdrop - yrsav) * 1440.0
+        tnav = min(tnav, -1.0)
+        tnavh = -1.0 * tnav / 60.0
         zlat = real(klat) + zltm / 60.0
         if (clats == ' S') zlat = -1.0 * zlat
         zlon = real(klon) + zlnm / 60.0
         if (clons == ' W') zlon = 360.0 - zlon
-        call interp(yrdrop, ylat, ylon, yrsav, zlat, zlon, yrnav, xlat, xlon)
-        tnav = (yrnav - yrsav) * 1440.0
-        tnav = max(tnav, 1.0)
-        goto 102
+        ylat = zlat + tnavh * spd * cos(dir * deg2rad) / 60.0
+        ylon = zlon + tnavh * spd * sin(dir * deg2rad) / (cos(ylat * deg2rad) * 60.0)
       end if
-    end do
 
-    ! last fix before drop - try next day
-    yrsav = yrnav
-    klat = jlat; zltm = xltm; clats = clat
-    klon = jlon; zlnm = xlnm; clons = clon
-    iday = iday + 1
-    if (iday == 32) goto 27
-    if (iday == 31 .and. (imo == 4 .or. imo == 6 .or. imo == 9 .or. imo == 11)) goto 27
-    if (iday == 29 .and. imo == 2 .and. mod(iyr, 4) /= 0) goto 27
-    if (iday == 30 .and. imo == 2 .and. mod(iyr, 4) == 0) goto 27
-    goto 28
-27  iday = 1; imo = imo + 1
-    if (imo == 13) then; iyr = iyr + 1; imo = 1; end if
-28  close(8)
-    call navopen(iday, imo, iyr, ierr, fnav, adir, len_adir)
-    if (ierr >= 1) goto 29
+      ! label 102 equivalent - post-interpolation/extrapolation
+      clat = ' N'
+      if (ylat < 0.0) clat = ' S'
+      ylata = abs(ylat)
+      ylatd = real(int(ylata))
+      ylatm = (ylata - ylatd) * 60.0
+      if (ylon > 360.0) ylon = ylon - 360.0
+      ylond = real(int(ylon))
+      ylonm = (abs(ylon) - abs(ylond)) * 60.0
 
-    read(8, '(6(i2,1x),i3,f8.4,a2,i4,f8.4,a2,4x,f6.2,f6.1,i3)', iostat=ios) &
-         jday, jmo, jyr, jhr, jmin, jsec, jlat, xltm, clat, jlon, xlnm, clon, spd, dir, nfix
-    if (ios /= 0) goto 29
-    close(8)
-    call yrdy(jyr, jmo, jday, jhr, jmin, jsec, yrnav)
-    xlat = real(jlat) + xltm / 60.0
-    if (clat == ' S') xlat = -1.0 * xlat
-    xlon = real(jlon) + xlnm / 60.0
-    if (clon == ' W') xlon = 360.0 - xlon
-    zlat = real(klat) + zltm / 60.0
-    if (clats == ' S') zlat = -1.0 * zlat
-    zlon = real(klon) + zlnm / 60.0
-    if (clons == ' W') zlon = 360.0 - zlon
-    call interp(yrdrop, ylat, ylon, yrsav, zlat, zlon, yrnav, xlat, xlon)
-    tnav = (yrnav - yrsav) * 1440.0
-    tnav = max(tnav, 1.0)
-    goto 102
+      write(chr58(32:40), '(f9.3)') ylat
+      write(chr58(41:49), '(f9.3)') ylon
+      call chkwrite(ylat, ylon, ierr)
+      if (ierr >= 1) then
+        ierror(4) = 1; ireturn = 1
+        call gpspos_cleanup(iw, ifile)
+        return
+      end if
 
-    ! extrapolation
-29  continue
-    close(8, iostat=ios)
-    tnav = -1.0 * (yrdrop - yrsav) * 1440.0
-    tnav = min(tnav, -1.0)
-    tnavh = -1.0 * tnav / 60.0
-    zlat = real(klat) + zltm / 60.0
-    if (clats == ' S') zlat = -1.0 * zlat
-    zlon = real(klon) + zlnm / 60.0
-    if (clons == ' W') zlon = 360.0 - zlon
-    ylat = zlat + tnavh * spd * cos(dir * deg2rad) / 60.0
-    ylon = zlon + tnavh * spd * sin(dir * deg2rad) / (cos(ylat * deg2rad) * 60.0)
+      itest = nint(tnav)
+      if (itest > 99999) itest = 99999
+      if (itest < -9999) itest = -9999
+      if (itest == 0) itest = -9999
 
-102 continue
-    clat = ' N'
-    if (ylat < 0.0) clat = ' S'
-    ylata = abs(ylat)
-    ylatd = real(int(ylata))
-    ylatm = (ylata - ylatd) * 60.0
-    if (ylon > 360.0) ylon = ylon - 360.0
-    ylond = real(int(ylon))
-    ylonm = (abs(ylon) - abs(ylond)) * 60.0
+      open(7, file=astations, status='old', iostat=ios)
+      if (ios /= 0) then
+        ierror(25) = 1; ireturn = 1
+        call gpspos_cleanup(iw, ifile)
+        return
+      end if
+      do i = 1, iline - 1
+        read(7, *, iostat=ios)
+        if (ios /= 0) then
+          ierror(26) = 1; ireturn = 1
+          call gpspos_cleanup(iw, ifile)
+          return
+        end if
+      end do
+      write(7, '(1x,a3,a58,i6,1x,a1)', iostat=ios) f1(len_f1+3:len_f1+5), chr58, itest, chr1
+      if (ios /= 0) then
+        ierror(29) = 1; ireturn = 1
+        call gpspos_cleanup(iw, ifile)
+        return
+      end if
+      do i = 1, iline2
+        write(7, '(a70)', iostat=ios) chr70(i)
+        if (ios /= 0) then
+          ierror(29) = 1; ireturn = 1
+          call gpspos_cleanup(iw, ifile)
+          return
+        end if
+      end do
+      write(7, '(a7)', iostat=ios) 'ENDDATA'
+      close(7)
 
-    write(chr58(32:40), '(f9.3)') ylat
-    write(chr58(41:49), '(f9.3)') ylon
-    call chkwrite(ylat, ylon, ierr)
-    if (ierr >= 1) then
-      ierror(4) = 1; ireturn = 1; goto 999
-    end if
-
-    itest = nint(tnav)
-    if (itest > 99999) itest = 99999
-    if (itest < -9999) itest = -9999
-    if (itest == 0) itest = -9999
-
-    open(7, file=astations, status='old', iostat=ios)
-    if (ios /= 0) then; ierror(25) = 1; ireturn = 1; goto 999; end if
-    do i = 1, iline - 1
-      read(7, *, iostat=ios)
-      if (ios /= 0) then; ierror(26) = 1; ireturn = 1; goto 999; end if
-    end do
-    write(7, '(1x,a3,a58,i6,1x,a1)', iostat=ios) f1(len_f1+3:len_f1+5), chr58, itest, chr1
-    if (ios /= 0) then; ierror(29) = 1; ireturn = 1; goto 999; end if
-    do i = 1, iline2
-      write(7, '(a70)', iostat=ios) chr70(i)
-      if (ios /= 0) then; ierror(29) = 1; ireturn = 1; goto 999; end if
-    end do
-    write(7, '(a7)', iostat=ios) 'ENDDATA'
-    close(7)
-
-    ! e file handling
-    f1(len_f1+1:len_f1+1) = 'E'
-    open(9, file=f1, status='old', iostat=ios)
-    if (ios == 0) then
-      read(9, '(a35)', iostat=ios) chr35
+      ! e file handling
+      f1(len_f1+1:len_f1+1) = 'E'
+      open(9, file=f1, status='old', iostat=ios)
       if (ios == 0) then
-        read(9, '(a21)', iostat=ios) chr21
+        read(9, '(a35)', iostat=ios) chr35
         if (ios == 0) then
-          ic = 0
-          do i = 1, 1000
-            read(9, '(a9)', iostat=ios) chr9(i)
-            if (ios /= 0) exit
-            ic = i
-          end do
-          close(9)
-          write(chr35(20:35), '(2f8.2)') ylat, ylon
-          open(9, file=f1, status='unknown', iostat=ios)
+          read(9, '(a21)', iostat=ios) chr21
           if (ios == 0) then
-            write(9, '(a35)') chr35
-            write(9, '(a21)') chr21
-            do i = 1, ic
-              write(9, '(a9)') chr9(i)
+            ic = 0
+            do i = 1, 1000
+              read(9, '(a9)', iostat=ios) chr9(i)
+              if (ios /= 0) exit
+              ic = i
             end do
+            close(9)
+            write(chr35(20:35), '(2f8.2)') ylat, ylon
+            open(9, file=f1, status='unknown', iostat=ios)
+            if (ios == 0) then
+              write(9, '(a35)') chr35
+              write(9, '(a21)') chr21
+              do i = 1, ic
+                write(9, '(a9)') chr9(i)
+              end do
+            end if
           end if
         end if
+        close(9, iostat=ios)
       end if
-      close(9, iostat=ios)
-    end if
 
-    iprofcnt = iprofcnt + 1
-    if (ichoosedrop > 0) goto 999
-    goto 1
+      iprofcnt = iprofcnt + 1
+      if (ichoosedrop > 0) then
+        call gpspos_cleanup(iw, ifile)
+        return
+      end if
+    end do ! main loop
 
-999 continue
-    close(7, iostat=ios)
-    close(8, iostat=ios)
-    close(9, iostat=ios)
-    if (iw == 1) write(ifile, *) 'END GPSPOS'
-    close(ifile, iostat=ios)
-    return
+  contains
+    subroutine gpspos_cleanup(iw_arg, ifile_arg)
+      integer, intent(in) :: iw_arg, ifile_arg
+      integer :: ios_l
+      close(7, iostat=ios_l)
+      close(8, iostat=ios_l)
+      close(9, iostat=ios_l)
+      if (iw_arg == 1) write(ifile_arg, *) 'END GPSPOS'
+      close(ifile_arg, iostat=ios_l)
+    end subroutine gpspos_cleanup
+
   end subroutine gpspos
 
   ! -----------------------------------------------------------------------
@@ -468,12 +542,19 @@ contains
          tdzmx, tdzrms, dtdzmn, dtdzth, dtmx, dtmx700, &
          tm_pl_mx, tm_pl_mn, iSIOSpeedAveMin, len_adir, adir, iw, ifile)
 
-    if (ierror(15) /= 0 .or. ierror(16) /= 0) goto 999
+    if (ierror(15) /= 0 .or. ierror(16) /= 0) then
+      call chkprof_cleanup(iw, ifile)
+      return
+    end if
     if (ierror(33) == 6) ierrlev = 6
 
     ! rdcntrl sets ichkprofdepth internally; use default if not available
     ! itestdepth stays at 720 or gets overridden by control.dat
-    if (itestdepth < 250) then; ireturn = 2; goto 999; end if
+    if (itestdepth < 250) then
+      ireturn = 2
+      call chkprof_cleanup(iw, ifile)
+      return
+    end if
 
     iread = itestdepth / 2
     itest_depth = iread - 10
@@ -484,16 +565,32 @@ contains
     f2(1:len_f1+5) = f1(1:len_f1+5)
 
     open(unit=7, file=astations, status='old', iostat=ios)
-    if (ios /= 0) then; ierror(25) = 1; ireturn = 2; goto 999; end if
+    if (ios /= 0) then
+      ierror(25) = 1; ireturn = 2
+      call chkprof_cleanup(iw, ifile)
+      return
+    end if
 
     iline = 0
     do i = 1, ichoosedrop
       read(7, '(a4)', iostat=ios) chr4
-      if (ios /= 0) then; ireturn = 2; goto 999; end if
-      if (chr4 == 'ENDD') then; ireturn = 2; goto 999; end if
+      if (ios /= 0) then
+        ireturn = 2
+        call chkprof_cleanup(iw, ifile)
+        return
+      end if
+      if (chr4 == 'ENDD') then
+        ireturn = 2
+        call chkprof_cleanup(iw, ifile)
+        return
+      end if
       backspace(7)
       read(7, '(1x,a3,a49,i4,i5,a8)', iostat=ios) chr3, chr49, ichk, iedt, chr8
-      if (ios /= 0) then; ierror(26) = 1; ireturn = 2; goto 999; end if
+      if (ios /= 0) then
+        ierror(26) = 1; ireturn = 2
+        call chkprof_cleanup(iw, ifile)
+        return
+      end if
       iline = iline + 1
 
       if (i == ichoosedrop) then
@@ -517,27 +614,48 @@ contains
         backspace(7)
         iline2 = iline2 + 1
         read(7, '(a70)', iostat=ios) chr70(iline2)
-        if (ios /= 0) then; ierror(26) = 1; ireturn = 2; goto 999; end if
+        if (ios /= 0) then
+          ierror(26) = 1; ireturn = 2
+          call chkprof_cleanup(iw, ifile)
+          return
+        end if
       end do
       close(7)
       ichkprof = -3
       open(7, file=astations, status='old', iostat=ios)
-      if (ios /= 0) then; ierror(25) = 1; ireturn = 2; goto 999; end if
+      if (ios /= 0) then
+        ierror(25) = 1; ireturn = 2
+        call chkprof_cleanup(iw, ifile)
+        return
+      end if
       do i = 1, iline - 1
         read(7, *, iostat=ios)
-        if (ios /= 0) then; ierror(26) = 1; ireturn = 2; goto 999; end if
+        if (ios /= 0) then
+          ierror(26) = 1; ireturn = 2
+          call chkprof_cleanup(iw, ifile)
+          return
+        end if
       end do
       write(7, '(1x,a3,a49,i4,i5,a8)', iostat=ios) chr3, chr49, ichkprof, iedt, chr8
-      if (ios /= 0) then; ierror(29) = 1; ireturn = 2; goto 999; end if
+      if (ios /= 0) then
+        ierror(29) = 1; ireturn = 2
+        call chkprof_cleanup(iw, ifile)
+        return
+      end if
       do i = 1, iline2
         write(7, '(a70)', iostat=ios) chr70(i)
       end do
       write(7, '(a7)') 'ENDDATA'
       close(7)
-      goto 999
+      call chkprof_cleanup(iw, ifile)
+      return
     end if
 
-    if (f2(len_f1+3:len_f1+5) == '000') then; ireturn = 2; goto 999; end if
+    if (f2(len_f1+3:len_f1+5) == '000') then
+      ireturn = 2
+      call chkprof_cleanup(iw, ifile)
+      return
+    end if
 
     ! read rest of stations.dat
     iline2 = 0
@@ -547,7 +665,11 @@ contains
       backspace(7)
       iline2 = iline2 + 1
       read(7, '(a70)', iostat=ios) chr70(iline2)
-      if (ios /= 0) then; ierror(26) = 1; ireturn = 2; goto 999; end if
+      if (ios /= 0) then
+        ierror(26) = 1; ireturn = 2
+        call chkprof_cleanup(iw, ifile)
+        return
+      end if
     end do
     close(7)
 
@@ -558,24 +680,41 @@ contains
 
     ! open current profile
     open(unit=14, file=f2, status='old', iostat=ios)
-    if (ios /= 0) then; ireturn = 2; goto 999; end if
+    if (ios /= 0) then
+      ireturn = 2
+      call chkprof_cleanup(iw, ifile)
+      return
+    end if
     read(14, *, iostat=ios)
     read(14, *, iostat=ios)
     do i = 1, iread
       read(14, '(i3,i6)', iostat=ios) id, it
-      if (ios /= 0) then; close(14); ibad = 1; ireturn = 1; goto 997; end if
+      if (ios /= 0) then
+        close(14); ibad = 1; ireturn = 1
+        call chkprof_write_bad(astations, chr3, chr49, iedt, chr8, iline, iline2, chr70, &
+                               ierror, ireturn, iw, ifile)
+        return
+      end if
       avt(i) = real(it) / 1000.0
     end do
     close(14)
 
     ! open reference profile
     open(unit=19, file=f1, status='old', iostat=ios)
-    if (ios /= 0) then; ireturn = 2; goto 999; end if
+    if (ios /= 0) then
+      ireturn = 2
+      call chkprof_cleanup(iw, ifile)
+      return
+    end if
     read(19, *, iostat=ios)
     read(19, *, iostat=ios)
     do i = 1, itest_depth
       read(19, '(i3,i6)', iostat=ios) idl, itl
-      if (ios /= 0) then; close(19); ireturn = 2; goto 999; end if
+      if (ios /= 0) then
+        close(19); ireturn = 2
+        call chkprof_cleanup(iw, ifile)
+        return
+      end if
       rft(i) = real(itl) / 1000.0
     end do
     close(19)
@@ -607,17 +746,23 @@ contains
       end if
     end do
 
-    if (ibad == 1) goto 997
-    if (abs(dtmax) > dtmx) goto 997
-    if (nptsrms > 0) dzrms = sqrt(dzrms / real(nptsrms))
-    if (dzrms > tdzrms) ibad = 1
-    if (dzmx > tdzmx) goto 997
-    if (i700m == 1) then; ibad = 1; end if
+    if (ibad /= 1 .and. abs(dtmax) <= dtmx) then
+      if (nptsrms > 0) dzrms = sqrt(dzrms / real(nptsrms))
+      if (dzrms > tdzrms) ibad = 1
+      if (dzmx > tdzmx) ibad = 1
+      if (i700m == 1) ibad = 1
+    else
+      ibad = 1
+    end if
 
     if (ibad == 0) then
       ichkprof = 1
       open(7, file=astations, status='old', iostat=ios)
-      if (ios /= 0) then; ierror(25) = 1; ireturn = 2; goto 999; end if
+      if (ios /= 0) then
+        ierror(25) = 1; ireturn = 2
+        call chkprof_cleanup(iw, ifile)
+        return
+      end if
       do i = 1, iline - 1
         read(7, *, iostat=ios)
       end do
@@ -627,31 +772,58 @@ contains
       end do
       write(7, '(a7)') 'ENDDATA'
       close(7)
-      goto 999
+      call chkprof_cleanup(iw, ifile)
+      return
     end if
 
-997 continue
-    ichkprof = -1
-    open(7, file=astations, status='old', iostat=ios)
-    if (ios /= 0) then; ierror(25) = 1; ireturn = 2; goto 999; end if
-    do i = 1, iline - 1
-      read(7, *, iostat=ios)
-    end do
-    write(7, '(1x,a3,a49,i4,i5,a8)', iostat=ios) chr3, chr49, ichkprof, iedt, chr8
-    do i = 1, iline2
-      write(7, '(a70)', iostat=ios) chr70(i)
-    end do
-    write(7, '(a7)') 'ENDDATA'
-    close(7)
-    ireturn = 1
-
-999 continue
-    close(7, iostat=ios)
-    if (iw == 1) then
-      write(ifile, *) 'End chkprof'
-    end if
-    close(ifile, iostat=ios)
+    ! bad profile
+    call chkprof_write_bad(astations, chr3, chr49, iedt, chr8, iline, iline2, chr70, &
+                           ierror, ireturn, iw, ifile)
     return
+
+  contains
+    subroutine chkprof_cleanup(iw_arg, ifile_arg)
+      integer, intent(in) :: iw_arg, ifile_arg
+      integer :: ios_l
+      close(7, iostat=ios_l)
+      if (iw_arg == 1) then
+        write(ifile_arg, *) 'End chkprof'
+      end if
+      close(ifile_arg, iostat=ios_l)
+    end subroutine chkprof_cleanup
+
+    subroutine chkprof_write_bad(astations_a, chr3_a, chr49_a, iedt_a, chr8_a, &
+                                  iline_a, iline2_a, chr70_a, ierror_a, ireturn_a, iw_a, ifile_a)
+      character(len=80), intent(in) :: astations_a
+      character(len=3), intent(in) :: chr3_a
+      character(len=49), intent(in) :: chr49_a
+      integer, intent(in) :: iedt_a, iline_a, iline2_a, iw_a, ifile_a
+      character(len=8), intent(in) :: chr8_a
+      character(len=70), intent(in) :: chr70_a(nzmx)
+      integer, intent(inout) :: ierror_a(nerr)
+      integer, intent(inout) :: ireturn_a
+      integer :: ichkprof_l, ios_l, i_l
+
+      ichkprof_l = -1
+      open(7, file=astations_a, status='old', iostat=ios_l)
+      if (ios_l /= 0) then
+        ierror_a(25) = 1; ireturn_a = 2
+        call chkprof_cleanup(iw_a, ifile_a)
+        return
+      end if
+      do i_l = 1, iline_a - 1
+        read(7, *, iostat=ios_l)
+      end do
+      write(7, '(1x,a3,a49,i4,i5,a8)', iostat=ios_l) chr3_a, chr49_a, ichkprof_l, iedt_a, chr8_a
+      do i_l = 1, iline2_a
+        write(7, '(a70)', iostat=ios_l) chr70_a(i_l)
+      end do
+      write(7, '(a7)') 'ENDDATA'
+      close(7)
+      ireturn_a = 1
+      call chkprof_cleanup(iw_a, ifile_a)
+    end subroutine chkprof_write_bad
+
   end subroutine chkprof
 
   ! -----------------------------------------------------------------------
@@ -678,6 +850,7 @@ contains
     real :: tm_pl_mx, tm_pl_mn
     real :: csst, t700s
     real :: t700_loc, xlat_loc, xlon_loc
+    logical :: skip_to_format
 
     iw = 0
     ifile = 33
@@ -727,64 +900,88 @@ contains
          tdzmx, tdzrms, dtdzmn, dtdzth, dtmx, dtmx700, &
          tm_pl_mx, tm_pl_mn, iSIOSpeedAveMin, len_adir, adir, iw, ifile)
 
-    if (ierror(15) /= 0) then; ierror(35) = 315; goto 500; end if
-    if (ierror(16) /= 0) then; ierror(35) = 316; goto 500; end if
-
-    f1(len_f1+1:len_f1+len_acruise) = acruise(1:len_acruise)
-    len_f1 = len_f1 + len_acruise
-    write(f1(len_f1+1:len_f1+5), '(a5)') 's.000'
-
-    ch3(1:3) = '000'
-    if (nextdrop <= 9) write(ch3(3:3), '(i1)') nextdrop
-    if (nextdrop >= 10 .and. nextdrop <= 99) write(ch3(2:3), '(i2)') nextdrop
-    if (nextdrop >= 100) write(ch3(1:3), '(i3)') nextdrop
-    f1(len_f1+3:len_f1+5) = ch3(1:3)
-
-    csst = -9.999; t700s = -9999.0
-
-    ! try s file
-    open(19, file=f1, status='old', form='formatted', iostat=ios)
-    if (ios /= 0) then; ierror(46) = 1; goto 404; end if
-    read(19, *, iostat=ios)
-    if (ios /= 0) then; ierror(40) = 1; goto 404; end if
-    read(19, *, iostat=ios)
-    if (ios /= 0) then; ierror(40) = 1; goto 404; end if
-    read(19, *, iostat=ios)
-    if (ios /= 0) then; ierror(40) = 1; goto 404; end if
-    read(19, '(i3,i6)', iostat=ios) idep, item
-    if (ios /= 0) then; ierror(40) = 1; goto 404; end if
-    do ii = 1, 348
-      read(19, '(i3,i6)', iostat=ios) idep, it700
-      if (ios /= 0) exit
-    end do
-    csst = real(item) * 0.001
-    t700s = real(it700)
-404 continue
-    close(19, iostat=ios)
-
-    ! sst.dat
-    open(17, file=asst, status='unknown', iostat=ios)
-    if (ios /= 0) then; ierror(48) = 1; goto 462; end if
-    rewind(17)
-    do i = 1, nextdrop - 1
-      read(17, *, iostat=ios)
-      if (ios /= 0) then; ierror(49) = 1; goto 462; end if
-    end do
-    write(17, '(1x,a3,1x,f7.3)', iostat=ios) ch3, csst
-    if (ios /= 0) ierror(50) = 1
-462 continue
-    close(17, iostat=ios)
-
-    ! t700 logic
-    if (abs(t700_loc - (-9999.0)) < 0.5) then
-      t700_loc = t700s * 0.001
-    else if (t700_loc < -2.0 .or. t700_loc > 40.0) then
-      t700_loc = t700s * 0.001
+    skip_to_format = .false.
+    if (ierror(15) /= 0) then
+      ierror(35) = 315; skip_to_format = .true.
     end if
-    if (t700_loc > 99.99 .or. t700_loc <= -10.0) t700_loc = -9.999
+    if (.not. skip_to_format .and. ierror(16) /= 0) then
+      ierror(35) = 316; skip_to_format = .true.
+    end if
 
-500 continue
-    ! format date/time
+    if (.not. skip_to_format) then
+      f1(len_f1+1:len_f1+len_acruise) = acruise(1:len_acruise)
+      len_f1 = len_f1 + len_acruise
+      write(f1(len_f1+1:len_f1+5), '(a5)') 's.000'
+
+      ch3(1:3) = '000'
+      if (nextdrop <= 9) write(ch3(3:3), '(i1)') nextdrop
+      if (nextdrop >= 10 .and. nextdrop <= 99) write(ch3(2:3), '(i2)') nextdrop
+      if (nextdrop >= 100) write(ch3(1:3), '(i3)') nextdrop
+      f1(len_f1+3:len_f1+5) = ch3(1:3)
+
+      csst = -9.999; t700s = -9999.0
+
+      ! try s file
+      open(19, file=f1, status='old', form='formatted', iostat=ios)
+      if (ios /= 0) then
+        ierror(46) = 1
+      else
+        read(19, *, iostat=ios)
+        if (ios /= 0) then
+          ierror(40) = 1
+        else
+          read(19, *, iostat=ios)
+          if (ios /= 0) then
+            ierror(40) = 1
+          else
+            read(19, *, iostat=ios)
+            if (ios /= 0) then
+              ierror(40) = 1
+            else
+              read(19, '(i3,i6)', iostat=ios) idep, item
+              if (ios /= 0) then
+                ierror(40) = 1
+              else
+                do ii = 1, 348
+                  read(19, '(i3,i6)', iostat=ios) idep, it700
+                  if (ios /= 0) exit
+                end do
+                csst = real(item) * 0.001
+                t700s = real(it700)
+              end if
+            end if
+          end if
+        end if
+      end if
+      close(19, iostat=ios)
+
+      ! sst.dat
+      open(17, file=asst, status='unknown', iostat=ios)
+      if (ios /= 0) then
+        ierror(48) = 1
+      else
+        rewind(17)
+        do i = 1, nextdrop - 1
+          read(17, *, iostat=ios)
+          if (ios /= 0) then; ierror(49) = 1; exit; end if
+        end do
+        if (ierror(49) == 0) then
+          write(17, '(1x,a3,1x,f7.3)', iostat=ios) ch3, csst
+          if (ios /= 0) ierror(50) = 1
+        end if
+      end if
+      close(17, iostat=ios)
+
+      ! t700 logic
+      if (abs(t700_loc - (-9999.0)) < 0.5) then
+        t700_loc = t700s * 0.001
+      else if (t700_loc < -2.0 .or. t700_loc > 40.0) then
+        t700_loc = t700s * 0.001
+      end if
+      if (t700_loc > 99.99 .or. t700_loc <= -10.0) t700_loc = -9.999
+    end if
+
+    ! format date/time (was label 500)
     aday = '00'; amon = '00'; ayer = '00'; ahr = '00'; amin_c = '00'; asec = '00'
     if (iday <= 9) then; write(aday(2:2), '(i1)') iday
     else; write(aday(1:2), '(i2)') iday; end if
@@ -802,33 +999,41 @@ contains
     ! open stations.dat
     open(7, file=astations, status='old', iostat=ios)
     if (ios /= 0) then
-      ierror(25) = 1; ierror(35) = 325; goto 950
+      ierror(25) = 1; ierror(35) = 325
+    else
+      rewind(7)
+
+      do i = 1, 1000
+        indx = i
+        read(7, '(a4)', iostat=ios) chr4
+        if (ios /= 0) then; indx = indx - 1; exit; end if
+        if (chr4 == 'ENDD') exit
+      end do
+      if (chr4 /= 'ENDD') then
+        indx = indx - 1
+        if (indx < 1) then
+          ierror(26) = 1; ierror(35) = 326
+        end if
+      end if
+
+      if (ierror(25) == 0 .and. ierror(26) == 0) then
+        backspace(7)
+        if (indx /= nextdrop) ierror(32) = 1
+
+        write(7, '(1x,a3,i6,f7.3,1x,a2,a1,a2,a1,a2,1x,a2,a1,a2,a1,a2,f9.3,f9.3,i4,i5,i6,1x,a1)', &
+              iostat=ios) ch3(1:3), itube, t700_loc, aday, '/', amon, '/', ayer, &
+              ahr, ':', amin_c, ':', asec, xlat_loc, xlon_loc, 0, 0, 0, 'n'
+        if (ios /= 0) then
+          ierror(29) = 1; ierror(35) = 329
+        else
+          write(7, '(a7)', iostat=ios) 'ENDDATA'
+          if (ios /= 0) then; ierror(29) = 1; ierror(35) = 329; end if
+        end if
+      end if
     end if
-    rewind(7)
 
-    do i = 1, 1000
-      indx = i
-      read(7, '(a4)', iostat=ios) chr4
-      if (ios /= 0) then; indx = indx - 1; exit; end if
-      if (chr4 == 'ENDD') goto 912
-    end do
-    indx = indx - 1
-    if (indx < 1) then; ierror(26) = 1; ierror(35) = 326; goto 950; end if
-
-912 continue
-    backspace(7)
-    if (indx /= nextdrop) ierror(32) = 1
-
-    write(7, '(1x,a3,i6,f7.3,1x,a2,a1,a2,a1,a2,1x,a2,a1,a2,a1,a2,f9.3,f9.3,i4,i5,i6,1x,a1)', &
-          iostat=ios) ch3(1:3), itube, t700_loc, aday, '/', amon, '/', ayer, &
-          ahr, ':', amin_c, ':', asec, xlat_loc, xlon_loc, 0, 0, 0, 'n'
-    if (ios /= 0) then; ierror(29) = 1; ierror(35) = 329; goto 950; end if
-    write(7, '(a7)', iostat=ios) 'ENDDATA'
-    if (ios /= 0) then; ierror(29) = 1; ierror(35) = 329; end if
-
-950 continue
     close(7, iostat=ios)
-999 continue
+    ! cleanup (was labels 950 and 999)
     if (ierror(35) == 0) ierror(35) = 2
     if (iw == 1) then
       do i = 1, nerr
@@ -912,80 +1117,98 @@ contains
     call deg2dec(int(clatd), clatm, aclath, vlat)
     call deg2dec(int(clond), clonm, aclonh, vlon)
     call chkall(vlat, vlon, speed, dir, ierrwrite)
-    if (ierrwrite == 1) then; ierror(28) = 1; goto 700; end if
+    if (ierrwrite == 1) then
+      ierror(28) = 1
+      close(10, iostat=ios); close(15, iostat=ios)
+      if (iw == 1) write(ifile, *) 'end wrnavfls'
+      close(ifile, iostat=ios)
+      return
+    end if
 
     ! navtrk.dat
     open(15, file=anavtrk, form='formatted', status='unknown', iostat=ios)
     if (ios /= 0) then
-      close(15, iostat=ios); iflg = 1; goto 170
+      close(15, iostat=ios); iflg = 1
+    else
+      read(15, '(i2,1x,i2,1x,i2,9x,i2,1x,i2,1x,i2,f7.3,f8.3,f6.2,f7.2)', iostat=ios) &
+           nday, nmon, nyear, nhr, nmin, nsec, vlatin, vlonin, speedin, dirin
+      if (ios /= 0) then
+        close(15, iostat=ios); iflg = 1
+      else
+        nyear = nyear + 2000
+        close(15, iostat=ios)
+        call compare(iday, imon, iyer, ihr, imin, isec, nday, nmon, nyear, nhr, nmin, nsec, iflg)
+      end if
     end if
-    read(15, '(i2,1x,i2,1x,i2,9x,i2,1x,i2,1x,i2,f7.3,f8.3,f6.2,f7.2)', iostat=ios) &
-         nday, nmon, nyear, nhr, nmin, nsec, vlatin, vlonin, speedin, dirin
-    if (ios /= 0) then
-      close(15, iostat=ios); iflg = 1; goto 170
-    end if
-    nyear = nyear + 2000
-    close(15, iostat=ios)
-    call compare(iday, imon, iyer, ihr, imin, isec, nday, nmon, nyear, nhr, nmin, nsec, iflg)
 
-170 continue
+    ! was label 170
     if (iflg == 1) then
       open(15, file=anavtrk, form='formatted', status='unknown', iostat=ios)
-      if (ios /= 0) then; ierror(23) = 1; goto 190; end if
-      write(15, '(a8,1x,i2,a1,i2,a1,i2,1x,f7.3,f8.3,f6.2,f7.2)', iostat=ios) &
-           adate, ihr, ':', imin, ':', isec, vlat, vlon, speed, dir
-      if (ios /= 0) then; ierror(14) = 1; close(15, iostat=ios); goto 190; end if
+      if (ios /= 0) then
+        ierror(23) = 1
+      else
+        write(15, '(a8,1x,i2,a1,i2,a1,i2,1x,f7.3,f8.3,f6.2,f7.2)', iostat=ios) &
+             adate, ihr, ':', imin, ':', isec, vlat, vlon, speed, dir
+        if (ios /= 0) then; ierror(14) = 1; close(15, iostat=ios); end if
+      end if
     end if
     close(15, iostat=ios)
 
-190 continue
-    ! date.nav
+    ! was label 190 - date.nav
     idone = 0; ibefore = 0
     open(10, file=afilen, form='formatted', status='unknown', iostat=ios)
     if (ios /= 0) then
-      ierror(5) = 1; ierror(34) = iday; ierror(36) = imon; ierror(37) = iyer; goto 700
-    end if
-    rewind(10, iostat=ios)
-    i = 0
-    do i = 1, 1500
-      read(10, '(a64)', iostat=ios) a64(i)
-      if (ios /= 0) exit
-      if (idone == 0) then
-        read(a64(i), '(9x,i2,1x,i2,1x,i2)', iostat=ios) nhr, nmin, nsec
-        if (ios /= 0) then
-          ierror(2) = 1; goto 700
+      ierror(5) = 1; ierror(34) = iday; ierror(36) = imon; ierror(37) = iyer
+    else
+      rewind(10, iostat=ios)
+      i = 0
+      do i = 1, 1500
+        read(10, '(a64)', iostat=ios) a64(i)
+        if (ios /= 0) exit
+        if (idone == 0) then
+          read(a64(i), '(9x,i2,1x,i2,1x,i2)', iostat=ios) nhr, nmin, nsec
+          if (ios /= 0) then
+            ierror(2) = 1
+            ! fall through to cleanup
+            exit
+          end if
+          call findtime(nhr, nmin, nsec, ihr, imin, isec, iflg)
+          if (iflg == 0) then
+            idone = 1
+          else if (iflg == 1) then
+            ibefore = ibefore + 1
+          end if
         end if
-        call findtime(nhr, nmin, nsec, ihr, imin, isec, iflg)
-        if (iflg == 0) then
-          idone = 1
-        else if (iflg == 1) then
-          ibefore = ibefore + 1
+      end do
+
+      if (ierror(2) == 0) then
+        if (idone == 0) then
+          backspace(10, iostat=ios)
+          write(10, '(a8,1x,i2,a1,i2,a1,i2,1x,i3,1x,f7.4,1x,a1,1x,i3,1x,f7.4,1x,a1,1x,a3,f6.2,f6.1,i3)', &
+               iostat=ios) adate(1:8), ihr, ':', imin, ':', isec, &
+               abs(iclatd), clatm, aclath, iclond, clonm, aclonh, 'MAN', speed, dir, 0
+          if (ios /= 0) then; ierror(6) = 1; end if
+        else
+          close(10, iostat=ios)
+          open(10, file=afilen, form='formatted', status='unknown', iostat=ios)
+          if (ios /= 0) then
+            ierror(5) = 1
+          else
+            do j = 1, ibefore
+              write(10, '(a64)') a64(j)
+            end do
+            write(10, '(a8,1x,i2,a1,i2,a1,i2,1x,i3,1x,f7.4,1x,a1,1x,i3,1x,f7.4,1x,a1,1x,a3,f6.2,f6.1,i3)', &
+                 iostat=ios) adate(1:8), ihr, ':', imin, ':', isec, &
+                 abs(iclatd), clatm, aclath, iclond, clonm, aclonh, 'MAN', speed, dir, 0
+            do j = ibefore + 1, i - 1
+              write(10, '(a64)') a64(j)
+            end do
+          end if
         end if
       end if
-    end do
-
-    if (idone == 0) then
-      backspace(10, iostat=ios)
-      write(10, '(a8,1x,i2,a1,i2,a1,i2,1x,i3,1x,f7.4,1x,a1,1x,i3,1x,f7.4,1x,a1,1x,a3,f6.2,f6.1,i3)', &
-           iostat=ios) adate(1:8), ihr, ':', imin, ':', isec, &
-           abs(iclatd), clatm, aclath, iclond, clonm, aclonh, 'MAN', speed, dir, 0
-      if (ios /= 0) then; ierror(6) = 1; end if
-    else
-      close(10, iostat=ios)
-      open(10, file=afilen, form='formatted', status='unknown', iostat=ios)
-      if (ios /= 0) then; ierror(5) = 1; goto 700; end if
-      do j = 1, ibefore
-        write(10, '(a64)') a64(j)
-      end do
-      write(10, '(a8,1x,i2,a1,i2,a1,i2,1x,i3,1x,f7.4,1x,a1,1x,i3,1x,f7.4,1x,a1,1x,a3,f6.2,f6.1,i3)', &
-           iostat=ios) adate(1:8), ihr, ':', imin, ':', isec, &
-           abs(iclatd), clatm, aclath, iclond, clonm, aclonh, 'MAN', speed, dir, 0
-      do j = ibefore + 1, i - 1
-        write(10, '(a64)') a64(j)
-      end do
     end if
 
-700 continue
+    ! cleanup (was label 700)
     close(10, iostat=ios); close(15, iostat=ios)
     if (iw == 1) write(ifile, *) 'end wrnavfls'
     close(ifile, iostat=ios)
@@ -1035,6 +1258,7 @@ contains
     integer :: igderr(3)
     integer :: iw, ifile, ios, len_adir, i, icount
     integer :: id, im, iy, ih, imi, is
+    logical :: found_match
 
     ierror(25) = 0; ierror(26) = 0; ierror(29) = 0
     ierror(32) = 0; ierror(44) = 0; ierror(45) = 0
@@ -1064,7 +1288,11 @@ contains
     iyer = iyer - 2000
 
     open(7, file=astations, status='old', iostat=ios)
-    if (ios /= 0) then; ierror(25) = 1; goto 400; end if
+    if (ios /= 0) then
+      ierror(25) = 1
+      call wrxmit_cleanup(iw, ifile)
+      return
+    end if
     rewind(7)
 
     icount = 0
@@ -1075,42 +1303,68 @@ contains
     end do
     close(7)
 
-    if (ichoosedrop >= icount) goto 299
+    found_match = .false.
+
+    if (ichoosedrop >= icount) then
+      ierror(32) = 1; close(7, iostat=ios)
+      call wrxmit_cleanup(iw, ifile)
+      return
+    end if
 
     if (ichoosedrop > 0) then
       write(aline(ichoosedrop)(70:70), '(a1)') 'y'
-      goto 300
+      found_match = .true.
     else
       do i = 1, icount
-        if (aline(i)(1:3) == 'END') goto 299
+        if (aline(i)(1:3) == 'END') exit
         read(aline(i)(1:70), '(18x,i2,1x,i2,1x,i2,1x,i2,1x,i2,1x,i2)', iostat=ios) &
              id, im, iy, ih, imi, is
         if (ios /= 0) cycle
         if (id == iday .and. im == imon .and. iy == iyer .and. ih == ihr .and. imi == imin) then
           write(aline(i)(70:70), '(a1)') 'y'
-          goto 300
+          found_match = .true.
+          exit
         end if
       end do
     end if
 
-299 ierror(32) = 1; close(7, iostat=ios); goto 400
+    if (.not. found_match) then
+      ierror(32) = 1; close(7, iostat=ios)
+      call wrxmit_cleanup(iw, ifile)
+      return
+    end if
 
-300 continue
+    ! write updated file
     open(7, file=astations, status='old', iostat=ios)
-    if (ios /= 0) then; ierror(25) = 1; goto 400; end if
+    if (ios /= 0) then
+      ierror(25) = 1
+      call wrxmit_cleanup(iw, ifile)
+      return
+    end if
     rewind(7)
     do i = 1, icount - 1
       write(7, '(a70)', iostat=ios) aline(i)(1:70)
-      if (ios /= 0) then; ierror(29) = 1; close(7, iostat=ios); goto 400; end if
+      if (ios /= 0) then
+        ierror(29) = 1; close(7, iostat=ios)
+        call wrxmit_cleanup(iw, ifile)
+        return
+      end if
     end do
     write(7, '(a7)') 'ENDDATA'
     close(7)
 
-400 continue
-    close(7, iostat=ios)
-    if (iw == 1) write(ifile, *) 'End wrxmit'
-    close(ifile, iostat=ios)
+    call wrxmit_cleanup(iw, ifile)
     return
+
+  contains
+    subroutine wrxmit_cleanup(iw_arg, ifile_arg)
+      integer, intent(in) :: iw_arg, ifile_arg
+      integer :: ios_l
+      close(7, iostat=ios_l)
+      if (iw_arg == 1) write(ifile_arg, *) 'End wrxmit'
+      close(ifile_arg, iostat=ios_l)
+    end subroutine wrxmit_cleanup
+
   end subroutine wrxmit
 
   ! -----------------------------------------------------------------------
@@ -1140,6 +1394,7 @@ contains
     character(len=7) :: acruise
     character(len=3) :: adrop
     character(len=1) :: alat, alon
+    logical :: processing_ok
 
     a_coef = 0.00216; b_coef = 6.472; isbn = 0; xcal = 0.0
     iw = 0; ierrlev = 0; ifile = 33
@@ -1176,7 +1431,10 @@ contains
          tdzmx, tdzrms, dtdzmn, dtdzth, dtmx, dtmx700, &
          tm_pl_mx, tm_pl_mn, iSIOSpeedAveMin, len_adir, adir, iw, ifile)
 
-    if (ierror(15) /= 0 .or. ierror(16) /= 0) goto 999
+    if (ierror(15) /= 0 .or. ierror(16) /= 0) then
+      call seas2s_final_cleanup(iw, ifile, ierror)
+      return
+    end if
     if (len_acruise > 7) len_acruise = 7
 
     arawfile(len_adir+1:len_adir+5) = 'Data/'
@@ -1202,116 +1460,149 @@ contains
       write(adrop(1:3), '(i3)') nextdrop
     end if
 
+    processing_ok = .true.
+
     open(23, file=arawfile, form='formatted', status='old', iostat=ios)
-    if (ios /= 0) then; ierror(41) = 1; goto 300; end if
+    if (ios /= 0) then
+      ierror(41) = 1; processing_ok = .false.
+    end if
 
-    xlat = 0.0; xlon = 0.0; numtems = 0; adate = ' '
+    if (processing_ok) then
+      xlat = 0.0; xlon = 0.0; numtems = 0; adate = ' '
 
-    do i = 1, 999
-      a100 = ablank
-      read(23, '(a)', iostat=ios) a100
-      if (ios < 0) then; ierror(43) = 1; goto 300; end if
-      if (ios > 0) then; ierror(42) = 1; goto 300; end if
+      do i = 1, 999
+        a100 = ablank
+        read(23, '(a)', iostat=ios) a100
+        if (ios < 0) then; ierror(43) = 1; processing_ok = .false.; exit; end if
+        if (ios > 0) then; ierror(42) = 1; processing_ok = .false.; exit; end if
 
-      if (a100(1:4) == 'Date' .or. a100(2:5) == 'Date') then
-        adate(1:21) = ' 00-00-0000  00:00:00'
-        if (a100(1:1) == 'D') then
-          adate(2:3) = a100(24:25); adate(5:6) = a100(27:28)
-          adate(8:11) = a100(30:33); adate(14:15) = a100(35:36); adate(17:18) = a100(38:39)
-        else
-          adate(2:3) = a100(25:26); adate(5:6) = a100(28:29)
-          adate(8:11) = a100(31:34); adate(14:15) = a100(36:37); adate(17:18) = a100(39:40)
-        end if
-      else if (a100(1:4) == 'Lati' .or. a100(2:5) == 'Lati') then
-        if (a100(1:1) == 'L') then
-          read(a100(20:28), '(f7.3,1x,a1)', iostat=ios) xlat, alat
-        else
-          read(a100(21:29), '(f7.3,1x,a1)', iostat=ios) xlat, alat
-        end if
-        if (alat(1:1) == 'S' .or. alat(1:1) == 's') xlat = -xlat
-      else if (a100(1:4) == 'Long' .or. a100(2:5) == 'Long') then
-        if (a100(1:1) == 'L') then
-          read(a100(21:30), '(f7.3,1x,a1)', iostat=ios) xlon, alon
-        else
-          read(a100(22:31), '(f7.3,1x,a1)', iostat=ios) xlon, alon
-        end if
-        if (alon(1:1) == 'W' .or. alon(1:1) == 'w') xlon = 360.0 - xlon
-      else if (a100(1:4) == 'XBT:' .or. a100(2:5) == 'XBT:') then
-        if (a100(1:4) == 'XBT:') read(a100(6:9), '(i4)') numtems
-
-        x = real(numtems) / 20.0
-        numtemlines = int(x)
-        xremainder = x - real(numtemlines)
-        nremain = 0
-        if (abs(xremainder) > 0.001) nremain = int(xremainder * 20.0)
-
-        ii = 1
-        do k = 1, numtemlines
-          read(23, '(20i5)', iostat=ios) (item(jj), jj=ii, ii+19)
-          if (ios /= 0) then
-            if (ios < 0) then; ierror(43) = 1; else; ierror(42) = 1; end if
-            goto 300
+        if (a100(1:4) == 'Date' .or. a100(2:5) == 'Date') then
+          adate(1:21) = ' 00-00-0000  00:00:00'
+          if (a100(1:1) == 'D') then
+            adate(2:3) = a100(24:25); adate(5:6) = a100(27:28)
+            adate(8:11) = a100(30:33); adate(14:15) = a100(35:36); adate(17:18) = a100(38:39)
+          else
+            adate(2:3) = a100(25:26); adate(5:6) = a100(28:29)
+            adate(8:11) = a100(31:34); adate(14:15) = a100(36:37); adate(17:18) = a100(39:40)
           end if
-          ii = ii + 20
-        end do
-        if (nremain > 0) then
-          read(23, '(a)', iostat=ios) a100
-          if (ios /= 0) then; ierror(42) = 1; goto 300; end if
-          ij = 1
-          do jj = 1, nremain
-            read(a100(ij:ij+4), '(i5)') item(ii)
-            ij = ij + 5; ii = ii + 1
+        else if (a100(1:4) == 'Lati' .or. a100(2:5) == 'Lati') then
+          if (a100(1:1) == 'L') then
+            read(a100(20:28), '(f7.3,1x,a1)', iostat=ios) xlat, alat
+          else
+            read(a100(21:29), '(f7.3,1x,a1)', iostat=ios) xlat, alat
+          end if
+          if (alat(1:1) == 'S' .or. alat(1:1) == 's') xlat = -xlat
+        else if (a100(1:4) == 'Long' .or. a100(2:5) == 'Long') then
+          if (a100(1:1) == 'L') then
+            read(a100(21:30), '(f7.3,1x,a1)', iostat=ios) xlon, alon
+          else
+            read(a100(22:31), '(f7.3,1x,a1)', iostat=ios) xlon, alon
+          end if
+          if (alon(1:1) == 'W' .or. alon(1:1) == 'w') xlon = 360.0 - xlon
+        else if (a100(1:4) == 'XBT:' .or. a100(2:5) == 'XBT:') then
+          if (a100(1:4) == 'XBT:') read(a100(6:9), '(i4)') numtems
+
+          x = real(numtems) / 20.0
+          numtemlines = int(x)
+          xremainder = x - real(numtemlines)
+          nremain = 0
+          if (abs(xremainder) > 0.001) nremain = int(xremainder * 20.0)
+
+          ii = 1
+          do k = 1, numtemlines
+            read(23, '(20i5)', iostat=ios) (item(jj), jj=ii, ii+19)
+            if (ios /= 0) then
+              if (ios < 0) then; ierror(43) = 1; else; ierror(42) = 1; end if
+              processing_ok = .false.
+              exit
+            end if
+            ii = ii + 20
           end do
+          if (processing_ok .and. nremain > 0) then
+            read(23, '(a)', iostat=ios) a100
+            if (ios /= 0) then
+              ierror(42) = 1; processing_ok = .false.
+            else
+              ij = 1
+              do jj = 1, nremain
+                read(a100(ij:ij+4), '(i5)') item(ii)
+                ij = ij + 5; ii = ii + 1
+              end do
+            end if
+          end if
+          exit
         end if
-        exit
-      end if
-    end do
-
-    close(23, iostat=ios)
-
-    do i = 1, numtems
-      raw(i) = real(item(i)) * 0.001
-    end do
-
-    open(14, file=asfile, status='unknown', form='formatted', iostat=ios)
-    if (ios /= 0) then; ierror(46) = 1; goto 300; end if
-
-    write(14, '(2x,a3,i7,f7.3,2f8.2)', iostat=ios) adrop(1:3), isbn, xcal, xlat, xlon
-    if (ios /= 0) then; ierror(47) = 1; goto 300; end if
-    write(14, '(a21)', iostat=ios) adate(1:21)
-    if (ios /= 0) then; ierror(47) = 1; goto 300; end if
-
-    ibins = 0; nbin = 0; avt_val = 0.0; t700 = 0.0
-    do jj = 1, numtems
-      temp = raw(jj); time = real(jj) / 10.0
-      depth = b_coef * time - a_coef * time * time
-      ibin = int(depth / 2.0) + 1
-      if (ibin == ibins .or. ibins == 0) then
-        nbin = nbin + 1; avt_val = avt_val + temp
-      else
-        avt_val = avt_val / real(nbin)
-        iavt = nint(1000.0 * avt_val)
-        idep = 2 * ibin - 3
-        if (idep > 999) idep = idep - 1000
-        write(14, '(i3,i6)', iostat=ios) idep, iavt
-        if (ios /= 0) then; ierror(47) = 1; goto 300; end if
-        if (ibin == 350) t700 = avt_val
-        avt_val = temp; nbin = 1
-      end if
-      ibins = ibin
-    end do
-    close(14, iostat=ios)
-
-300 continue
-    close(23, iostat=ios); close(14, iostat=ios)
-999 continue
-    if (iw == 1) then
-      do i = 1, nerr
-        if (ierror(i) /= 0) write(ifile, *) 'ierror(', i, ')=', ierror(i)
       end do
     end if
-    close(ifile, iostat=ios)
+
+    if (processing_ok) then
+      close(23, iostat=ios)
+
+      do i = 1, numtems
+        raw(i) = real(item(i)) * 0.001
+      end do
+
+      open(14, file=asfile, status='unknown', form='formatted', iostat=ios)
+      if (ios /= 0) then
+        ierror(46) = 1; processing_ok = .false.
+      end if
+    end if
+
+    if (processing_ok) then
+      write(14, '(2x,a3,i7,f7.3,2f8.2)', iostat=ios) adrop(1:3), isbn, xcal, xlat, xlon
+      if (ios /= 0) then
+        ierror(47) = 1; processing_ok = .false.
+      end if
+    end if
+
+    if (processing_ok) then
+      write(14, '(a21)', iostat=ios) adate(1:21)
+      if (ios /= 0) then
+        ierror(47) = 1; processing_ok = .false.
+      end if
+    end if
+
+    if (processing_ok) then
+      ibins = 0; nbin = 0; avt_val = 0.0; t700 = 0.0
+      do jj = 1, numtems
+        temp = raw(jj); time = real(jj) / 10.0
+        depth = b_coef * time - a_coef * time * time
+        ibin = int(depth / 2.0) + 1
+        if (ibin == ibins .or. ibins == 0) then
+          nbin = nbin + 1; avt_val = avt_val + temp
+        else
+          avt_val = avt_val / real(nbin)
+          iavt = nint(1000.0 * avt_val)
+          idep = 2 * ibin - 3
+          if (idep > 999) idep = idep - 1000
+          write(14, '(i3,i6)', iostat=ios) idep, iavt
+          if (ios /= 0) then; ierror(47) = 1; processing_ok = .false.; exit; end if
+          if (ibin == 350) t700 = avt_val
+          avt_val = temp; nbin = 1
+        end if
+        ibins = ibin
+      end do
+      close(14, iostat=ios)
+    end if
+
+    ! cleanup (was labels 300 and 999)
+    close(23, iostat=ios); close(14, iostat=ios)
+    call seas2s_final_cleanup(iw, ifile, ierror)
     return
+
+  contains
+    subroutine seas2s_final_cleanup(iw_arg, ifile_arg, ierror_arg)
+      integer, intent(in) :: iw_arg, ifile_arg
+      integer, intent(in) :: ierror_arg(nerr)
+      integer :: ios_l, i_l
+      if (iw_arg == 1) then
+        do i_l = 1, nerr
+          if (ierror_arg(i_l) /= 0) write(ifile_arg, *) 'ierror(', i_l, ')=', ierror_arg(i_l)
+        end do
+      end if
+      close(ifile_arg, iostat=ios_l)
+    end subroutine seas2s_final_cleanup
+
   end subroutine seas2s
 
   ! -----------------------------------------------------------------------
@@ -1326,6 +1617,7 @@ contains
     integer :: igderr(3)
     integer :: iw, ifile, ios, len_adir, indx, i
     integer(kind=2) :: j1, j2, j3, j4
+    logical :: found_end
 
     iw = 0; ifile = 33
     do i = 1, nerr
@@ -1371,26 +1663,33 @@ contains
 
     open(7, file=astations, status='old', iostat=ios)
     if (ios /= 0) then
-      ierror(25) = 1; goto 950
+      ierror(25) = 1
+    else
+      rewind(7)
+      found_end = .false.
+      do i = 1, 1000
+        indx = i
+        read(7, '(a4)', iostat=ios) chr4
+        if (ios /= 0) then; indx = indx - 1; exit; end if
+        if (chr4 == 'ENDD') then; found_end = .true.; exit; end if
+      end do
+      if (.not. found_end) then
+        indx = indx - 1
+        if (indx < 1) then; ierror(26) = 1; end if
+      end if
+
+      if (ierror(25) == 0 .and. ierror(26) == 0) then
+        backspace(7, iostat=ios)
+        if (ios /= 0) then
+          ierror(29) = 1
+        else
+          write(7, '(a7)', iostat=ios) 'ENDDATA'
+          if (ios /= 0) then; ierror(29) = 1; end if
+        end if
+      end if
     end if
-    rewind(7)
 
-    do i = 1, 1000
-      indx = i
-      read(7, '(a4)', iostat=ios) chr4
-      if (ios /= 0) then; indx = indx - 1; exit; end if
-      if (chr4 == 'ENDD') goto 912
-    end do
-    indx = indx - 1
-    if (indx < 1) then; ierror(26) = 1; goto 950; end if
-
-912 continue
-    backspace(7, iostat=ios)
-    if (ios /= 0) then; ierror(29) = 1; goto 950; end if
-    write(7, '(a7)', iostat=ios) 'ENDDATA'
-    if (ios /= 0) then; ierror(29) = 1; goto 950; end if
-
-950 continue
+    ! cleanup (was label 950)
     close(7, iostat=ios)
     if (iw == 1) write(ifile, *) 'END tstwrstn'
     close(ifile, iostat=ios)
@@ -1433,10 +1732,14 @@ contains
 
     call getdir(adir, len_adir, ierror, igderr)
     if (ierror(7) == 1) then
-      len_adir = 0; ierror(35) = 307; goto 999
+      len_adir = 0; ierror(35) = 307
+      call sioend_cleanup(iw, ifile, ierror, ibuf)
+      return
     end if
     if (ierror(17) == 1) then
-      len_adir = 0; ierror(35) = 317; goto 999
+      len_adir = 0; ierror(35) = 317
+      call sioend_cleanup(iw, ifile, ierror, ibuf)
+      return
     end if
 
     if (len_adir > 0) then
@@ -1475,7 +1778,10 @@ contains
 
     if (istat == 1) then; astat = 'NAV'; else; astat = 'UNK'; end if
 
-    if (igps /= 1) goto 999
+    if (igps /= 1) then
+      call sioend_cleanup(iw, ifile, ierror, ibuf)
+      return
+    end if
 
     if (ibuf >= 5) then
       call chkbuf(ibuf, clatbuf, clonbuf, ctagbuf, ierr, iw, ifile)
@@ -1499,47 +1805,69 @@ contains
     dtime = real(idhr * 3600 + idmin * 60 + idsec)
     if (dtime <= 1000.0 .and. timeave >= 85000.0) ierrwrite = 1
 
-    if (ierrwrite == 1) then; ierror(28) = 1; goto 999; end if
+    if (ierrwrite == 1) then
+      ierror(28) = 1
+      call sioend_cleanup(iw, ifile, ierror, ibuf)
+      return
+    end if
 
     ! navtrk.dat
     open(15, file=anavtrk, form='formatted', status='unknown', iostat=ios)
-    if (ios /= 0) then; ierror(23) = 1; goto 170; end if
-    rewind(15, iostat=ios)
-    write(15, '(a8,1x,i2,a1,i2,a1,i2,1x,f7.3,f8.3,f6.2,f7.2)', iostat=ios) &
-         adateave, ihr, ':', imin_l, ':', isec_l, vlat, vlon, speed, dir
-    if (ios /= 0) then; ierror(14) = 1; close(15, iostat=ios); goto 170; end if
+    if (ios /= 0) then
+      ierror(23) = 1
+    else
+      rewind(15, iostat=ios)
+      write(15, '(a8,1x,i2,a1,i2,a1,i2,1x,f7.3,f8.3,f6.2,f7.2)', iostat=ios) &
+           adateave, ihr, ':', imin_l, ':', isec_l, vlat, vlon, speed, dir
+      if (ios /= 0) then; ierror(14) = 1; close(15, iostat=ios); end if
+    end if
     close(15, iostat=ios)
 
-170 continue
+    ! was label 170
     call dec2deg('lat', ivlatd, vlatm, avlath, vlat)
     call dec2deg('lon', ivlond, vlonm, avlonh, vlon)
-    if (avlath(1:1) == ' ') goto 999
+    if (avlath(1:1) == ' ') then
+      call sioend_cleanup(iw, ifile, ierror, ibuf)
+      return
+    end if
 
     if (ibuf >= 5) then
       open(10, file=afilen, form='formatted', status='unknown', access='append', iostat=ios)
       if (ios /= 0) then
         ierror(5) = 1; ierror(34) = icday; ierror(36) = icmon; ierror(37) = icyear
-        goto 999
+        call sioend_cleanup(iw, ifile, ierror, ibuf)
+        return
       end if
       write(10, '(a8,1x,i2,a1,i2,a1,i2,1x,i3,1x,f7.4,1x,a1,1x,i3,1x,f7.4,1x,a1,1x,a3,1x,f5.2,1x,f5.1,i3)', &
            iostat=ios) adateave(1:8), ihr, ':', imin_l, ':', isec_l, &
            abs(ivlatd), vlatm, avlath, ivlond, vlonm, avlonh, astat, speed, dir, ibuf
       if (ios /= 0) then
         ierror(6) = 1; ierror(34) = icday; ierror(36) = icmon; ierror(37) = icyear
-        close(10, iostat=ios); goto 999
+        close(10, iostat=ios)
+        call sioend_cleanup(iw, ifile, ierror, ibuf)
+        return
       end if
       close(10, iostat=ios)
     end if
 
-999 continue
-    if (ierror(35) == 0) ierror(35) = 2
-    if (iw == 1) then
-      write(ifile, *) 'End sioend'
-    end if
-    close(ifile, iostat=ios)
-    ibuf = 0
-    close(10, iostat=ios); close(15, iostat=ios)
+    call sioend_cleanup(iw, ifile, ierror, ibuf)
     return
+
+  contains
+    subroutine sioend_cleanup(iw_arg, ifile_arg, ierror_arg, ibuf_arg)
+      integer, intent(in) :: iw_arg, ifile_arg
+      integer, intent(inout) :: ierror_arg(nerr)
+      integer, intent(inout) :: ibuf_arg
+      integer :: ios_l
+      if (ierror_arg(35) == 0) ierror_arg(35) = 2
+      if (iw_arg == 1) then
+        write(ifile_arg, *) 'End sioend'
+      end if
+      close(ifile_arg, iostat=ios_l)
+      ibuf_arg = 0
+      close(10, iostat=ios_l); close(15, iostat=ios_l)
+    end subroutine sioend_cleanup
+
   end subroutine sioend
 
 end module sio_core
