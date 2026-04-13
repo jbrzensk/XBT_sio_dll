@@ -1217,28 +1217,289 @@ contains
 
   ! -----------------------------------------------------------------------
   ! prstat: Read stations.dat and return last N drop info.
-  ! Simplified signature for module; iw controls logging.
+  ! prstat: return status of last <=10 drops from stations.dat
   ! sio.for line 5286, ~350 lines
   ! -----------------------------------------------------------------------
-  subroutine prstat(iw, nextdrop, itube, t700, xlat_in, xlon_in, &
-                    ihr, imin_in, isec_in, iday, imon, iyer, &
-                    ierror, ifile, alogname, istat1, istat2)
-    integer, intent(in)    :: iw, nextdrop, itube
-    real,    intent(in)    :: t700, xlat_in, xlon_in
-    integer, intent(in)    :: ihr, imin_in, isec_in, iday, imon, iyer
-    integer, intent(inout) :: ierror(nerr)
-    integer, intent(in)    :: ifile, istat1, istat2
-    character(len=*), intent(in) :: alogname
+  subroutine prstat(ido, iDropNo, iTubeNo, c700m, cLat, cLon, ihour, &
+                    imin, isec, iday, imonth, iyear, icheckprof, &
+                    iedited, iNavNo, csst, ixmit, ierror)
+    integer, parameter :: nr = 10
 
-    ! When iw=0, skip all file operations (safe for testing)
+    integer, intent(out)   :: ido
+    integer, intent(out)   :: iDropNo(nr), iTubeNo(nr)
+    real,    intent(out)   :: c700m(nr), cLat(nr), cLon(nr), csst(nr)
+    integer, intent(out)   :: ihour(nr), imin(nr), isec(nr)
+    integer, intent(out)   :: iday(nr), imonth(nr), iyear(nr)
+    integer, intent(out)   :: icheckprof(nr), iedited(nr), iNavNo(nr), ixmit(nr)
+    integer, intent(inout) :: ierror(nerr)
+
+    character(len=1)  :: axmit
+    character(len=3)  :: axbt, ch3
+    character(len=70) :: aline
+    character(len=80) :: adir, astations, asst, acontrol, aprstat
+    character(len=7)  :: acruise
+    integer :: igderr(3), launcher(12)
+    integer :: iw, ifile, ios, len_adir, len_acruise, iSIOSpeedAveMin
+    integer :: i, indx, iskip, iy, ierrlev
+    real    :: xmaxspd, deadmin, dropmin, relodmin, runsec
+    real    :: tdzmx, tdzrms, dtdzmn, dtdzth, dtmx, dtmx700
+    real    :: tm_pl_mx, tm_pl_mn, csst1
+    integer(2) :: j1, j2, j3, j4
+    logical :: early_exit, read_error
+
+    iw = 0
+    ifile = 33
+    ierrlev = 0
+    ido = 0
+    early_exit = .false.
+    read_error = .false.
+    csst1 = -999.9
+    ch3 = '   '
+
+    ! Clear only the error codes that prstat may set (preserve 38, 39, etc.)
     ierror(7)  = 0; ierror(15) = 0; ierror(16) = 0; ierror(17) = 0
     ierror(25) = 0; ierror(26) = 0; ierror(44) = 0; ierror(45) = 0
     ierror(48) = 0; ierror(49) = 0
 
-    if (iw == 0) return
+    ! Get seas2k path
+    call getdir(adir, len_adir, ierror, igderr)
+    if (ierror(7) == 1) then
+      len_adir = 0; ierror(35) = 307; early_exit = .true.
+    end if
+    if (.not. early_exit .and. ierror(17) == 1) then
+      len_adir = 0; ierror(35) = 317; early_exit = .true.
+    end if
 
-    ! Full prstat logic would go here when iw=1
-    ! (reads stations.dat, returns last 10 drops, etc.)
+    if (.not. early_exit) then
+      astations = ' '; asst = ' '; acontrol = ' '; aprstat = ' '
+      if (len_adir > 0) then
+        astations(1:len_adir) = adir(1:len_adir)
+        asst(1:len_adir)      = adir(1:len_adir)
+        acontrol(1:len_adir)  = adir(1:len_adir)
+        aprstat(1:len_adir)   = adir(1:len_adir)
+      end if
+
+      astations(len_adir+1:len_adir+17) = 'Data/stations.dat'
+      asst(len_adir+1:len_adir+12)      = 'Data/sst.dat'
+      acontrol(len_adir+1:len_adir+16)  = 'Data/control.dat'
+      aprstat(len_adir+1:len_adir+15)   = 'Data/prstat.log'
+
+      ! Open log file
+      open(ifile, file=aprstat, status='unknown', form='formatted', iostat=ios)
+      if (ios /= 0) then
+        ierror(44) = 1
+      else
+        iw = 1
+        write(ifile, *, iostat=ios) 'Inside prstat: calling rdcntrl'
+        if (ios /= 0) then; ierror(45) = 1; iw = 0; end if
+        if (iw == 1) then
+          if (igderr(1) /= 0) write(ifile, *) 'igderr1ios=', igderr(1)
+          if (igderr(2) /= 0) write(ifile, *) 'igderr2ios=', igderr(2)
+          if (igderr(3) /= 0) write(ifile, *) 'igderr3ios=', igderr(3)
+          call flush(ifile)
+        end if
+      end if
+
+      if (iw == 1) then
+        call gettim(j1, j2, j3, j4)
+        write(ifile, *) 'Begin prstat, dos time:', j1, j2, j3, j4
+        write(ifile, *) 'aprstat=', aprstat(1:len_adir+15)
+        write(ifile, *) 'astations=', astations(1:len_adir+17)
+        write(ifile, *) 'calling rdcntrl'
+        write(ifile, *) 'ierror(15)=', ierror(15)
+        write(ifile, *) 'ierror(16)=', ierror(16)
+      end if
+
+      call rdcntrl(ierror, len_acruise, acruise, xmaxspd, launcher, &
+           deadmin, dropmin, relodmin, runsec, &
+           tdzmx, tdzrms, dtdzmn, dtdzth, dtmx, dtmx700, &
+           tm_pl_mx, tm_pl_mn, iSIOSpeedAveMin, len_adir, adir, iw, ifile)
+
+      if (iw == 1) then
+        write(ifile, *) 'return rdcntrl= ierror(15->16)='
+        write(ifile, *) 'ierror(15)=', ierror(15)
+        write(ifile, *) 'ierror(16)=', ierror(16)
+      end if
+
+      if (ierror(15) /= 0) then
+        ierror(35) = 315; early_exit = .true.
+      else if (ierror(16) /= 0) then
+        ierror(35) = 316; early_exit = .true.
+      end if
+    end if
+
+    if (.not. early_exit) then
+      if (ierror(33) == 6) ierrlev = 6
+
+      ! Open stations.dat
+      open(7, file=astations, status='old', form='formatted', iostat=ios)
+      if (ios /= 0) then
+        ierror(25) = 1; ierror(35) = 325
+        if (iw == 1) write(ifile, *) 'error opening stations.dat'
+        early_exit = .true.
+      end if
+    end if
+
+    if (.not. early_exit) then
+      rewind(7)
+
+      ! Open sst.dat (non-fatal if missing)
+      open(17, file=asst, status='unknown', form='formatted', iostat=ios)
+      if (ios /= 0) then
+        ierror(48) = 1
+        if (iw == 1) write(ifile, *) 'error opening sst.dat, no big deal'
+      else
+        rewind(17)
+      end if
+
+      ! Count lines in stations.dat
+      indx = 0
+      do i = 1, 1000
+        indx = i
+        read(7, '(a70)', iostat=ios) aline(1:70)
+        if (ios /= 0) then
+          read_error = .true.
+          exit
+        end if
+        if (aline(1:3) == 'END') exit
+      end do
+
+      if (read_error) then
+        ierror(26) = 1; ierror(35) = 326
+        if (iw == 1) write(ifile, *) 'error reading stations.dat'
+        close(7, iostat=ios)
+      else
+        rewind(7)
+
+        ! indx-1 is the number of data lines (indx line = ENDDATA)
+        if (indx == 1) then
+          ido = 0
+        else if (indx > 1) then
+          iskip = (indx - 1) - nr
+
+          if (iskip <= 0) then
+            ido = indx - 1
+            iskip = 0
+          else
+            ido = nr
+          end if
+
+          if (iw == 1) write(ifile, *) 'indx=', indx, ' iskip=', iskip, ' ido=', ido
+
+          ! Skip lines in both stations.dat and sst.dat
+          if (iskip >= 1) then
+            do i = 1, iskip
+              if (ierrlev == 6 .and. iw == 1) write(ifile, *) 'skip ', i
+              read(7, *, iostat=ios)
+              if (ios /= 0) exit
+              if (ierror(48) == 0) then
+                read(17, *, iostat=ios)
+                if (ios /= 0) exit
+              end if
+            end do
+          end if
+
+          if (iw == 1) write(ifile, *) 'Read from stations.dat'
+          do i = 1, ido
+            csst(i) = -999.9
+            read(7, '(1x,a3,i6,f7.3,1x,i2,1x,i2,1x,i2,1x,i2,1x,i2,1x,i2,f9.3,f9.3,i4,i5,i6,1x,a1)', &
+                 iostat=ios) axbt, iTubeNo(i), c700m(i), iday(i), &
+                 imonth(i), iy, ihour(i), imin(i), isec(i), cLat(i), cLon(i), &
+                 icheckprof(i), iedited(i), iNavNo(i), axmit
+            if (ios /= 0) then
+              ierror(26) = 1; ierror(35) = 326
+              if (iw == 1) write(ifile, *) 'error reading stations.dat'
+              close(7, iostat=ios)
+              read_error = .true.
+              exit
+            end if
+
+            read(axbt(1:3), '(i3)') iDropNo(i)
+
+            if (iw == 1) then
+              write(ifile, *) 'read in i=', i
+              write(ifile, *) 'test iDropNo(i)=', iDropNo(i)
+            end if
+
+            iyear(i) = 2000 + iy
+
+            if (axmit == 'y' .or. axmit == 'Y') then
+              ixmit(i) = 1
+            else
+              ixmit(i) = 0
+            end if
+            if (iw == 1) write(ifile, *) i, 'set', iDropNo(i), iyear(i), ixmit(i)
+
+            ! Read SST from sst.dat
+            if (ierror(48) == 0 .and. ierror(49) == 0) then
+              read(17, '(1x,a3,1x,f7.3)', iostat=ios) ch3, csst1
+              if (ios /= 0) then
+                ierror(49) = 1
+                if (iw == 1) write(ifile, *) 'error reading sst.dat, no big deal'
+              else
+                if (ch3(1:3) == axbt(1:3)) then
+                  csst(i) = csst1
+                end if
+              end if
+            end if
+
+            if (iw == 1) then
+              write(ifile, '(1x,a3,1x,f7.3)') ch3, csst1
+              write(ifile, *) i, 'setit ', csst(i)
+            end if
+          end do
+        end if
+
+        if (.not. read_error) then
+          close(7, iostat=ios)
+          if (iw == 1) write(ifile, *) 'close7ios=', ios
+          close(17, iostat=ios)
+          if (iw == 1) write(ifile, *) 'close17ios=', ios
+
+          ! Convert longitude: 180-360 -> negative
+          do i = 1, ido
+            if (cLon(i) > 180.0 .and. cLon(i) < 360.0) then
+              cLon(i) = -1.0 * (360.0 - cLon(i))
+            else if (cLon(i) == 360.0) then
+              cLon(i) = 0.0
+            else if (cLon(i) > 360.0) then
+              cLon(i) = 360.0 - cLon(i)
+            end if
+          end do
+
+          if (iw == 1) then
+            write(ifile, *) 'sending back to Seas, ido=', ido
+            do i = 1, ido
+              write(ifile, *) iDropNo(i), iTubeNo(i), c700m(i), iday(i), &
+                   imonth(i), iyear(i), ihour(i), imin(i), isec(i), &
+                   cLat(i), cLon(i), icheckprof(i), iedited(i), iNavNo(i), ixmit(i)
+            end do
+          end if
+        end if
+      end if
+    end if
+
+    ! Final cleanup
+    if (ierror(35) == 0) then
+      ierror(35) = 2
+      if (iw == 1) write(ifile, *) 'all is well, set ierror(35)=2'
+    end if
+
+    ! Close all files for safety
+    close(7, iostat=ios)
+    if (iw == 1) write(ifile, *) 'ENDclose7ios=', ios
+    close(17, iostat=ios)
+    if (iw == 1) write(ifile, *) 'ENDclose17ios=', ios
+
+    if (iw == 1) then
+      do i = 1, nerr
+        if (ierror(i) == 1) write(ifile, *) 'ierror(', i, ')=1'
+      end do
+      call gettim(j1, j2, j3, j4)
+      write(ifile, *) 'end prstat, dos time:', j1, j2, j3, j4
+    end if
+    close(ifile, iostat=ios)
+
     return
   end subroutine prstat
 

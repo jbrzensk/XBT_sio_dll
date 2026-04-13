@@ -5,7 +5,7 @@ program test_sio_core
   integer :: failures = 0
 
   call test_wrdrpstn_sets_error_on_missing_file(failures)
-  call test_prstat_no_crash_with_valid_inputs(failures)
+  call test_prstat_sets_error_on_missing_file(failures)
 
   if (failures == 0) then
     print *, 'test_sio_core: ALL TESTS PASSED'
@@ -32,16 +32,26 @@ contains
     end if
   end subroutine
 
-  ! prstat should not crash with valid inputs; iw=0 means no file writes
-  subroutine test_prstat_no_crash_with_valid_inputs(failures)
+  subroutine test_prstat_sets_error_on_missing_file(failures)
     integer, intent(inout) :: failures
+    integer :: ido
+    integer :: iDropNo(10), iTubeNo(10)
+    real    :: c700m(10), cLat(10), cLon(10), csst(10)
+    integer :: ihour(10), imin_arr(10), isec(10)
+    integer :: iday(10), imonth(10), iyear(10)
+    integer :: icheckprof(10), iedited(10), iNavNo(10), ixmit(10)
     integer :: ierror(50)
-    ierror = 0
-    ! iw=0 means no log writing — safe to call with ifile=0
-    call prstat(0, 1, 1, 15.5, 30.0, 200.0, 12, 0, 0, 1, 6, 2024, &
-                ierror, 0, ' ', 0, 0)
-    ! Test passes if we get here without crashing
-    print *, 'PASS test_prstat_no_crash_with_valid_inputs'
+    ierror = 0; ido = 0
+    call prstat(ido, iDropNo, iTubeNo, c700m, cLat, cLon, ihour, &
+                imin_arr, isec, iday, imonth, iyear, icheckprof, &
+                iedited, iNavNo, csst, ixmit, ierror)
+    ! Should set ierror(25)=1 (stations.dat not found) or ierror(7)=1 (no siodir.txt)
+    if (ierror(25) /= 1 .and. ierror(7) /= 1 .and. ierror(17) /= 1) then
+      print *, 'FAIL test_prstat_sets_error_on_missing_file'
+      failures = failures + 1
+    else
+      print *, 'PASS test_prstat_sets_error_on_missing_file'
+    end if
   end subroutine
 
 end program test_sio_core
