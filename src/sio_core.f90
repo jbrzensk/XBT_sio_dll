@@ -40,6 +40,7 @@ contains
   ! sio.for line 2887, ~700 lines
   ! -----------------------------------------------------------------------
   subroutine gpspos(ierror, ireturn, ichoosedrop)
+!GCC$ ATTRIBUTES DLLEXPORT :: gpspos
     integer, intent(inout) :: ierror(nerr)
     integer, intent(out)   :: ireturn
     integer, intent(in)    :: ichoosedrop
@@ -476,6 +477,7 @@ contains
   ! sio.for line 3596, ~775 lines
   ! -----------------------------------------------------------------------
   subroutine chkprof(ierror, ireturn, ichoosedrop)
+!GCC$ ATTRIBUTES DLLEXPORT :: chkprof
     integer, intent(inout) :: ierror(nerr)
     integer, intent(out)   :: ireturn
     integer, intent(inout) :: ichoosedrop
@@ -835,6 +837,7 @@ contains
   ! -----------------------------------------------------------------------
   subroutine wrdrpstn(nextdrop, itube, t700, iday, imon, iyer, &
                       ihr, imin, isec, ierror, xlat, xlon)
+!GCC$ ATTRIBUTES DLLEXPORT :: wrdrpstn
     integer, intent(in)    :: nextdrop, itube
     integer, intent(in)    :: iday, imon, iyer, ihr, imin, isec
     integer, intent(inout) :: ierror(nerr)
@@ -1052,6 +1055,7 @@ contains
   ! -----------------------------------------------------------------------
   subroutine wrnavfls(ierror, iday, imon, iyer, ihr, imin, isec, &
        clatd, clatm, iclath, clond, clonm, iclonh, speed, dir)
+!GCC$ ATTRIBUTES DLLEXPORT :: wrnavfls
     integer, intent(inout) :: ierror(nerr)
     integer, intent(in)    :: iday, imon, iyer, ihr, imin, isec
     integer, intent(in)    :: iclath, iclonh
@@ -1223,6 +1227,7 @@ contains
   subroutine prstat(ido, iDropNo, iTubeNo, c700m, cLat, cLon, ihour, &
                     imin, isec, iday, imonth, iyear, icheckprof, &
                     iedited, iNavNo, csst, ixmit, ierror)
+!GCC$ ATTRIBUTES DLLEXPORT :: prstat
     integer, parameter :: nr = 10
 
     integer, intent(out)   :: ido
@@ -1508,6 +1513,7 @@ contains
   ! sio.for line 5638, ~215 lines
   ! -----------------------------------------------------------------------
   subroutine wrxmit(iday, imon, iyer, ihr, imin, isec, ierror, ichoosedrop)
+!GCC$ ATTRIBUTES DLLEXPORT :: wrxmit
     integer, intent(in)    :: iday, imon
     integer, intent(in)    :: iyer
     integer, intent(in)    :: ihr, imin, isec
@@ -1634,6 +1640,7 @@ contains
   ! sio.for line 5853, ~730 lines
   ! -----------------------------------------------------------------------
   subroutine seas2s(ierror, nextdrop)
+!GCC$ ATTRIBUTES DLLEXPORT :: seas2s
     integer, intent(inout) :: ierror(nerr)
     integer, intent(in)    :: nextdrop
 
@@ -1872,6 +1879,7 @@ contains
   ! sio.for line 6585, ~145 lines
   ! -----------------------------------------------------------------------
   subroutine tstwrstn(ierror)
+!GCC$ ATTRIBUTES DLLEXPORT :: tstwrstn
     integer, intent(inout) :: ierror(nerr)
 
     character(len=80) :: adir, awrdrpstn, astations
@@ -1966,6 +1974,7 @@ contains
        imonave, iyerave, speed, dir, timeave, vlat, vlon, &
        icday, icmon, icyear, istat, ctagbuf, clatbuf, clonbuf, &
        iSIOSpeedAveMin)
+!GCC$ ATTRIBUTES DLLEXPORT :: sioend
     integer, intent(in)    :: igps, ierrlev
     integer, intent(inout) :: ibuf
     integer, intent(inout) :: ierror(nerr)
