@@ -18,12 +18,13 @@ program test_sio_core
 contains
 
   ! wrdrpstn with no stations.dat present must set ierror(25)=1 or ierror(29)=1
+  ! or ierror(7)=1/ierror(17)=1 (getdir failure causes early return)
   subroutine test_wrdrpstn_sets_error_on_missing_file(failures)
     integer, intent(inout) :: failures
     integer :: ierror(50)
     ierror = 0
     call wrdrpstn(1, 1, 15.5, 1, 6, 2024, 12, 0, 0, ierror, 30.0, 200.0)
-    if (ierror(25) /= 1 .and. ierror(29) /= 1) then
+    if (ierror(25) /= 1 .and. ierror(29) /= 1 .and. ierror(7) /= 1 .and. ierror(17) /= 1) then
       print *, 'FAIL test_wrdrpstn_sets_error_on_missing_file: ierror(25)=', &
                ierror(25), ' ierror(29)=', ierror(29)
       failures = failures + 1

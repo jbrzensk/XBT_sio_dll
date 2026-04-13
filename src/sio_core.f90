@@ -727,7 +727,8 @@ contains
     end if
 
     ! main comparison
-    do i = 100, itest_depth
+    ! Start at 11 so back-stencil avt(i-10) starts at avt(1) (initialized)
+    do i = 11, itest_depth
       npts = npts + 1; nptsrms = nptsrms + 1
       tdif = abs(rft(i) - avt(i))
       if (abs(tdif) > dtmax) then; dtmax = abs(tdif); itdif = i; end if
@@ -786,6 +787,8 @@ contains
       integer, intent(in) :: iw_arg, ifile_arg
       integer :: ios_l
       close(7, iostat=ios_l)
+      close(14, iostat=ios_l)
+      close(19, iostat=ios_l)
       if (iw_arg == 1) then
         write(ifile_arg, *) 'End chkprof'
       end if
@@ -862,11 +865,9 @@ contains
     f1 = ' '; adir = ' '; awrdrpstn = ' '; astations = ' '; asst = ' '
 
     call getdir(adir, len_adir, ierror, igderr)
-    if (ierror(7) == 1) then
+    if (ierror(7) == 1 .or. ierror(17) == 1) then
       len_adir = 0
-    end if
-    if (ierror(17) == 1) then
-      len_adir = 0
+      return
     end if
 
     if (len_adir > 0) then
@@ -1119,7 +1120,6 @@ contains
     call chkall(vlat, vlon, speed, dir, ierrwrite)
     if (ierrwrite == 1) then
       ierror(28) = 1
-      close(10, iostat=ios); close(15, iostat=ios)
       if (iw == 1) write(ifile, *) 'end wrnavfls'
       close(ifile, iostat=ios)
       return
@@ -1509,7 +1509,7 @@ contains
   ! -----------------------------------------------------------------------
   subroutine wrxmit(iday, imon, iyer, ihr, imin, isec, ierror, ichoosedrop)
     integer, intent(in)    :: iday, imon
-    integer, intent(inout) :: iyer
+    integer, intent(in)    :: iyer
     integer, intent(in)    :: ihr, imin, isec
     integer, intent(inout) :: ierror(nerr)
     integer, intent(in)    :: ichoosedrop
@@ -1519,6 +1519,7 @@ contains
     integer :: igderr(3)
     integer :: iw, ifile, ios, len_adir, i, icount
     integer :: id, im, iy, ih, imi, is
+    integer :: iyer_2digit   ! local 2-digit year
     logical :: found_match
 
     ierror(25) = 0; ierror(26) = 0; ierror(29) = 0
@@ -1546,7 +1547,7 @@ contains
       if (ios /= 0) then; ierror(45) = 1; iw = 0; end if
     end if
 
-    iyer = iyer - 2000
+    iyer_2digit = iyer - 2000
 
     open(7, file=astations, status='old', iostat=ios)
     if (ios /= 0) then
@@ -1567,7 +1568,7 @@ contains
     found_match = .false.
 
     if (ichoosedrop >= icount) then
-      ierror(32) = 1; close(7, iostat=ios)
+      ierror(32) = 1
       call wrxmit_cleanup(iw, ifile)
       return
     end if
@@ -1581,7 +1582,7 @@ contains
         read(aline(i)(1:70), '(18x,i2,1x,i2,1x,i2,1x,i2,1x,i2,1x,i2)', iostat=ios) &
              id, im, iy, ih, imi, is
         if (ios /= 0) cycle
-        if (id == iday .and. im == imon .and. iy == iyer .and. ih == ihr .and. imi == imin) then
+        if (id == iday .and. im == imon .and. iy == iyer_2digit .and. ih == ihr .and. imi == imin) then
           write(aline(i)(70:70), '(a1)') 'y'
           found_match = .true.
           exit
@@ -1590,7 +1591,7 @@ contains
     end if
 
     if (.not. found_match) then
-      ierror(32) = 1; close(7, iostat=ios)
+      ierror(32) = 1
       call wrxmit_cleanup(iw, ifile)
       return
     end if
