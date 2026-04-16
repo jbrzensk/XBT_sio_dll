@@ -8,7 +8,7 @@ module sio_core
   implicit none
   private
   public :: gpspos, chkprof, wrdrpstn, wrnavfls, prstat, wrxmit, &
-            seas2s, tstwrstn, sioend
+            seas2s, tstwrstn, sioend, make_dos_date
 
   integer, parameter :: nerr = 50
 
