@@ -504,13 +504,15 @@ contains
     integer :: ichkprofdepth1, ii
     character(len=80) :: acontrol
 
-    ! Build path to control.dat: adir + 'control.dat'
+    ! Build path to control.dat: adir + 'Data\control.dat'
+    ! (original rdcntrl.for received the full path from siobegin as acontrol;
+    !  the file lives in the Data\ subdirectory under the seas2k directory)
     acontrol = ' '
     if (len_adir > 0) then
       acontrol(1:len_adir) = adir(1:len_adir)
-      acontrol(len_adir+1:len_adir+11) = 'control.dat'
+      acontrol(len_adir+1:len_adir+16) = 'Data\control.dat'
     else
-      acontrol = 'control.dat'
+      acontrol = 'Data\control.dat'
     end if
 
     ! Keyword strings matching control.dat new format
