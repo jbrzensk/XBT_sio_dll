@@ -93,6 +93,14 @@
     xlatload = 999.0
     ierror = 0
 
+    ! DEBUG PROBE A: absolute path, before getdir (remove after diagnosis)
+    open(97, file='C:\Users\Public\Documents\sio_probe_A.txt', &
+         form='formatted', status='unknown', iostat=ios)
+    if (ios == 0) then
+      write(97, *) 'siobegin ENTRY reached (probe A)'
+      close(97)
+    end if
+
     ! ---- Get seas2k path ----
     call getdir(adir, len_adir, ierror, igderr)
     if (ierror(7) == 1) then
