@@ -93,6 +93,17 @@
     xlatload = 999.0
     ierror = 0
 
+    ! DEBUG PROBE: confirm DLL is running at all (remove after diagnosis)
+    block
+      integer :: ios_dbg
+      open(98, file='c:\Users\Public\Documents\sio_probe.txt', &
+           form='formatted', status='unknown', iostat=ios_dbg)
+      if (ios_dbg == 0) then
+        write(98, *) 'siobegin entered'
+        close(98)
+      end if
+    end block
+
     ! ---- Get seas2k path ----
     call getdir(adir, len_adir, ierror, igderr)
     if (ierror(7) == 1) then
