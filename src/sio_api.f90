@@ -93,17 +93,6 @@
     xlatload = 999.0
     ierror = 0
 
-    ! DEBUG PROBE: confirm DLL is running at all (remove after diagnosis)
-    block
-      integer :: ios_dbg
-      open(98, file='c:\Users\Public\Documents\sio_probe.txt', &
-           form='formatted', status='unknown', iostat=ios_dbg)
-      if (ios_dbg == 0) then
-        write(98, *) 'siobegin entered'
-        close(98)
-      end if
-    end block
-
     ! ---- Get seas2k path ----
     call getdir(adir, len_adir, ierror, igderr)
     if (ierror(7) == 1) then
@@ -140,6 +129,16 @@
     aplan(len_adir+1:len_adir+8)      = 'plan.dat'
     anavtrk(len_adir+1:len_adir+15)   = 'Data\navtrk.dat'
     asio(len_adir+1:len_adir+12)      = 'Data\sio.log'
+
+    ! DEBUG PROBE: write to Data\ (remove after diagnosis)
+    open(98, file=adir(1:len_adir)//'Data\sio_probe.txt', &
+         form='formatted', status='unknown', iostat=ios)
+    if (ios == 0) then
+      write(98, *) 'siobegin reached: adir=', adir(1:len_adir)
+      write(98, *) 'ierror(7)=', ierror(7), ' ierror(17)=', ierror(17)
+      write(98, *) 'igderr=', igderr
+      close(98)
+    end if
 
     ! ---- Open log file ----
     iw = 0
