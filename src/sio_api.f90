@@ -1498,8 +1498,8 @@
              if (aclath == 'N') iclath = 1
              if (aclath == 'S') iclath = 3
 
-             call xbteta(xlatload360, vlat1, vlon1, speed, &
-                  ispec, iplandir, iw, ifile, ierror)
+             call xbteta(xlatload360, vlat1, vlon1, speed, dir, &
+                  ispec, nplan, ierrlev, nlnchr, eta, ifile)
           end if
           ! else ispd==0: skip to label 90
 
@@ -1522,8 +1522,8 @@
                   ierrlev, ifile)
              if (aclath == 'N') iclath = 1
              if (aclath == 'S') iclath = 3
-             call xbteta(xlatload360, vlat1, vlon1, speed, &
-                  ispec, iplandir, iw, ifile, ierror)
+             call xbteta(xlatload360, vlat1, vlon1, speed, dir, &
+                  ispec, nplan, ierrlev, nlnchr, eta, ifile)
              if (deadmin > 0.0 .and. gpstime >= xalarm .and. iupdate == 0) then
                 ierror(8) = 1
              end if
@@ -1818,3 +1818,116 @@
     end subroutine stb_cleanup
 
   end subroutine SioTimeBegin
+
+! ======================================================================
+! Flat-name wrappers for sio_core module procedures.
+! gfortran mangles module procedures as __sio_core_MOD_name, so
+! GetProcAddress("wrxmit") etc. fail.  These bare subroutines export
+! the unmangled names the C++ host expects.
+! ======================================================================
+
+  subroutine gpspos(ierror, ireturn, ichoosedrop)
+    use sio_core, only: core_gpspos => gpspos
+    implicit none
+!GCC$ ATTRIBUTES DLLEXPORT :: gpspos
+    integer, intent(inout) :: ierror(50)
+    integer, intent(out)   :: ireturn
+    integer, intent(in)    :: ichoosedrop
+    call core_gpspos(ierror, ireturn, ichoosedrop)
+  end subroutine gpspos
+
+  subroutine chkprof(ierror, ireturn, ichoosedrop)
+    use sio_core, only: core_chkprof => chkprof
+    implicit none
+!GCC$ ATTRIBUTES DLLEXPORT :: chkprof
+    integer, intent(inout) :: ierror(50)
+    integer, intent(out)   :: ireturn
+    integer, intent(inout) :: ichoosedrop
+    call core_chkprof(ierror, ireturn, ichoosedrop)
+  end subroutine chkprof
+
+  subroutine wrdrpstn(nextdrop, itube, t700, iday, imon, iyer, &
+                      ihr, imin, isec, ierror, xlat, xlon)
+    use sio_core, only: core_wrdrpstn => wrdrpstn
+    implicit none
+!GCC$ ATTRIBUTES DLLEXPORT :: wrdrpstn
+    integer, intent(in)    :: nextdrop, itube
+    integer, intent(in)    :: iday, imon, iyer, ihr, imin, isec
+    integer, intent(inout) :: ierror(50)
+    real,    intent(in)    :: t700, xlat, xlon
+    call core_wrdrpstn(nextdrop, itube, t700, iday, imon, iyer, &
+                       ihr, imin, isec, ierror, xlat, xlon)
+  end subroutine wrdrpstn
+
+  subroutine wrnavfls(ierror, iday, imon, iyer, ihr, imin, isec, &
+                      clatd, clatm, iclath, clond, clonm, iclonh, speed, dir)
+    use sio_core, only: core_wrnavfls => wrnavfls
+    implicit none
+!GCC$ ATTRIBUTES DLLEXPORT :: wrnavfls
+    integer, intent(inout) :: ierror(50)
+    integer, intent(in)    :: iday, imon, iyer, ihr, imin, isec
+    integer, intent(in)    :: iclath, iclonh
+    real,    intent(in)    :: clatd, clatm, clond, clonm
+    real,    intent(inout) :: speed, dir
+    call core_wrnavfls(ierror, iday, imon, iyer, ihr, imin, isec, &
+                       clatd, clatm, iclath, clond, clonm, iclonh, speed, dir)
+  end subroutine wrnavfls
+
+  subroutine prstat(ido, iDropNo, iTubeNo, c700m, cLat, cLon, ihour, &
+                    imin, isec, iday, imonth, iyear, icheckprof, &
+                    iedited, iNavNo, csst, ixmit, ierror)
+    use sio_core, only: core_prstat => prstat
+    implicit none
+!GCC$ ATTRIBUTES DLLEXPORT :: prstat
+    integer, parameter :: nr = 10
+    integer, intent(out)   :: ido
+    integer, intent(out)   :: iDropNo(nr), iTubeNo(nr)
+    real,    intent(out)   :: c700m(nr), cLat(nr), cLon(nr), csst(nr)
+    integer, intent(out)   :: ihour(nr), imin(nr), isec(nr)
+    integer, intent(out)   :: iday(nr), imonth(nr), iyear(nr)
+    integer, intent(out)   :: icheckprof(nr), iedited(nr), iNavNo(nr), ixmit(nr)
+    integer, intent(inout) :: ierror(50)
+    call core_prstat(ido, iDropNo, iTubeNo, c700m, cLat, cLon, ihour, &
+                     imin, isec, iday, imonth, iyear, icheckprof, &
+                     iedited, iNavNo, csst, ixmit, ierror)
+  end subroutine prstat
+
+  subroutine wrxmit(iday, imon, iyer, ihr, imin, isec, ierror, ichoosedrop)
+    use sio_core, only: core_wrxmit => wrxmit
+    implicit none
+!GCC$ ATTRIBUTES DLLEXPORT :: wrxmit
+    integer, intent(in)    :: iday, imon, iyer, ihr, imin, isec
+    integer, intent(inout) :: ierror(50)
+    integer, intent(in)    :: ichoosedrop
+    call core_wrxmit(iday, imon, iyer, ihr, imin, isec, ierror, ichoosedrop)
+  end subroutine wrxmit
+
+  subroutine seas2s(ierror, nextdrop)
+    use sio_core, only: core_seas2s => seas2s
+    implicit none
+!GCC$ ATTRIBUTES DLLEXPORT :: seas2s
+    integer, intent(inout) :: ierror(50)
+    integer, intent(in)    :: nextdrop
+    call core_seas2s(ierror, nextdrop)
+  end subroutine seas2s
+
+  subroutine sioend(igps, ibuf, ierrlev, ierror, idayave, &
+                    imonave, iyerave, speed, dir, timeave, vlat, vlon, &
+                    icday, icmon, icyear, istat, ctagbuf, clatbuf, clonbuf, &
+                    iSIOSpeedAveMin)
+    use sio_core, only: core_sioend => sioend
+    implicit none
+!GCC$ ATTRIBUTES DLLEXPORT :: sioend
+    integer, intent(in)    :: igps, ierrlev
+    integer, intent(inout) :: ibuf
+    integer, intent(inout) :: ierror(50)
+    integer, intent(in)    :: idayave, imonave, iyerave
+    integer, intent(in)    :: icday, icmon, icyear, istat
+    integer, intent(inout) :: iSIOSpeedAveMin
+    real,    intent(inout) :: speed, dir, timeave, vlat, vlon
+    real,    intent(inout) :: clatbuf(200), clonbuf(200), ctagbuf(200)
+    call core_sioend(igps, ibuf, ierrlev, ierror, idayave, &
+                     imonave, iyerave, speed, dir, timeave, vlat, vlon, &
+                     icday, icmon, icyear, istat, ctagbuf, clatbuf, clonbuf, &
+                     iSIOSpeedAveMin)
+  end subroutine sioend

@@ -328,22 +328,85 @@ contains
 
   end subroutine newpos
 
-  ! Compute ETA to next drop positions. siosub.for:2233.
-  ! Note: simplified signature vs. original — ispec array and peta output
-  ! are embedded; caller passes ispec(12) via ierror-style array.
-  subroutine xbteta(xlatload, vlat1, vlon1, speed, &
-                    ispec, iplandir, iw, ifile, ierror)
-    real,    intent(in)    :: xlatload(12), vlat1, vlon1, speed
-    integer, intent(in)    :: ispec(12), iplandir, iw, ifile
-    integer, intent(inout) :: ierror(nerr)
+  ! Compute ETA (hours) to next drop positions. Ported from siosub.for:2233.
+  ! Unused original params (ctime, xlat, xlon, ixhr, ixmin, ixsec) omitted.
+  subroutine xbteta(xlatload, vlat1, vlon1, speed, dir, &
+                    ispec, nplan, ierrlev, nlnchr, peta, ifile)
+    real,    intent(in)  :: xlatload(12), vlat1, vlon1, speed, dir
+    integer, intent(in)  :: ispec(12), nplan, ierrlev, nlnchr, ifile
+    real,    intent(out) :: peta(12)
 
-    ! stub — xbteta signature in skeleton differs substantially from
-    ! the original (which passes dir, ctime, nplan, xlat, xlon, ixhr,
-    ! ixmin, ixsec, ierrlev, nlnchr, peta, ifile).  The skeleton
-    ! interface is what tests/callers use; leave as no-op until
-    ! a concrete caller is known.
-    if (iw == 1) write(ifile,*) 'xbteta: iplandir=', iplandir, &
-                                 ' vlat1=', vlat1, ' vlon1=', vlon1
+    real    :: deg2rad, dxlatld, dxlatnml, dxlonld, dxlonnm1
+    real    :: distld, eta_val, x
+    integer :: i, neta
+
+    deg2rad = 3.141592654 / 180.0
+    neta = 0
+    do i = 1, 12
+      peta(i) = 0.0
+    end do
+
+    if (ierrlev >= 6) then
+      write(ifile,*) 'inside xbteta, ispec=', ispec
+      write(ifile,*) 'vlat1=', vlat1, ' vlon1=', vlon1
+      write(ifile,*) 'speed=', speed, ' dir=', dir
+    end if
+
+    do i = 1, nplan+1
+      if (ispec(i) == 1) then
+        dxlatld  = vlat1 - xlatload(i)
+        dxlatnml = abs(dxlatld * 60.0)
+        x = cos(dir * deg2rad)
+        if (ierrlev >= 6) write(ifile,*) '  LAT,dxlatld=', dxlatld, &
+                                          ' dxlatnml=', dxlatnml, ' x=', x
+        if (x /= 0.0) then
+          distld = abs(dxlatnml / x)
+          if (ierrlev >= 6) write(ifile,*) ' x.ne.0,distld=', distld
+        else
+          distld = abs(dxlatnml)
+          if (ierrlev >= 6) write(ifile,*) '  x.eq.0,distld=', distld
+        end if
+      else
+        dxlonld = vlon1 - xlatload(i)
+        if (ierrlev >= 6) write(ifile,*) '  dxlonld=', dxlonld
+        if (abs(dxlonld) >= 300.0) then
+          if (dxlonld > 300.0) then
+            dxlonld = 360.0 - (vlon1 - xlatload(i))
+            if (ierrlev >= 6) write(ifile,*) '  new dxlonld=', dxlonld
+          else if (dxlonld < -300.0) then
+            dxlonld = 360.0 + (vlon1 - xlatload(i))
+            if (ierrlev >= 6) write(ifile,*) '  new dxlonld=', dxlonld
+          end if
+        end if
+        dxlonnm1 = abs(dxlonld * (60.0 * cos(vlat1 * deg2rad)))
+        x = sin(dir * deg2rad)
+        if (ierrlev >= 6) write(ifile,*) '  LON', vlon1, xlatload(i), &
+                                          ' dxlonld=', dxlonld, &
+                                          ' dxlonnm1=', dxlonnm1, ' x=', x
+        if (x /= 0.0) then
+          distld = abs(dxlonnm1 / x)
+        else
+          distld = abs(dxlonnm1)
+        end if
+        if (ierrlev >= 6) write(ifile,*) '  distld=', distld
+      end if
+
+      if (speed == 0.0) then
+        eta_val = distld
+      else
+        eta_val = distld / speed
+      end if
+
+      if (ispec(i) == 0) then
+        if (x * dxlonld > 0.0) eta_val = -eta_val
+      else
+        if (x * dxlatld > 0.0) eta_val = -eta_val
+      end if
+
+      neta = neta + 1
+      peta(neta) = eta_val
+      if (ierrlev >= 6) write(ifile,*) '  peta(', neta, ')=', eta_val
+    end do
 
   end subroutine xbteta
 
