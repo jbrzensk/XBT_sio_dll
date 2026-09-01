@@ -6,6 +6,9 @@ program test_sio_core
 
   call test_wrdrpstn_sets_error_on_missing_file(failures)
   call test_prstat_sets_error_on_missing_file(failures)
+  call test_make_dos_date_single_digit(failures)
+  call test_make_dos_date_double_digit(failures)
+  call test_make_dos_date_epoch(failures)
 
   if (failures == 0) then
     print *, 'test_sio_core: ALL TESTS PASSED'
@@ -52,6 +55,53 @@ contains
       failures = failures + 1
     else
       print *, 'PASS test_prstat_sets_error_on_missing_file'
+    end if
+  end subroutine
+
+  ! make_dos_date: single-digit day and month → '0d', '0m', '2024'
+  ! Exercises the iday <= 9 and imon <= 9 branches.
+  subroutine test_make_dos_date_single_digit(failures)
+    integer, intent(inout) :: failures
+    character(len=2) :: adosday, adosmon
+    character(len=4) :: adosyear
+    call make_dos_date(1, 6, 2024, adosday, adosmon, adosyear)
+    if (adosday /= '01' .or. adosmon /= '06' .or. adosyear /= '2024') then
+      print *, 'FAIL test_make_dos_date_single_digit: day="', adosday, &
+               '" mon="', adosmon, '" year="', adosyear, '"'
+      failures = failures + 1
+    else
+      print *, 'PASS test_make_dos_date_single_digit'
+    end if
+  end subroutine
+
+  ! make_dos_date: double-digit day and month → 'dd', 'mm', '2023'
+  ! Exercises the iday > 9 and imon > 9 branches.
+  subroutine test_make_dos_date_double_digit(failures)
+    integer, intent(inout) :: failures
+    character(len=2) :: adosday, adosmon
+    character(len=4) :: adosyear
+    call make_dos_date(15, 12, 2023, adosday, adosmon, adosyear)
+    if (adosday /= '15' .or. adosmon /= '12' .or. adosyear /= '2023') then
+      print *, 'FAIL test_make_dos_date_double_digit: day="', adosday, &
+               '" mon="', adosmon, '" year="', adosyear, '"'
+      failures = failures + 1
+    else
+      print *, 'PASS test_make_dos_date_double_digit'
+    end if
+  end subroutine
+
+  ! make_dos_date at epoch year 2000 and single-digit day/month
+  subroutine test_make_dos_date_epoch(failures)
+    integer, intent(inout) :: failures
+    character(len=2) :: adosday, adosmon
+    character(len=4) :: adosyear
+    call make_dos_date(9, 9, 2000, adosday, adosmon, adosyear)
+    if (adosday /= '09' .or. adosmon /= '09' .or. adosyear /= '2000') then
+      print *, 'FAIL test_make_dos_date_epoch: day="', adosday, &
+               '" mon="', adosmon, '" year="', adosyear, '"'
+      failures = failures + 1
+    else
+      print *, 'PASS test_make_dos_date_epoch'
     end if
   end subroutine
 

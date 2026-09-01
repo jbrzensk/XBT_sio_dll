@@ -53,3 +53,9 @@ test_integration_*
 
 # R history files
 .Rhistory
+
+# gcov coverage artifacts
+*.gcno
+*.gcda
+*.gcov
+err_*.txt

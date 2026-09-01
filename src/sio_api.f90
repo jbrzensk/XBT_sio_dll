@@ -1036,6 +1036,7 @@
     integer :: iw, ifile, ios, len_adir
     integer :: igderr(3)
     integer :: ihr, imin, isec, ierr, iderr
+    integer :: iminboundary, iwrotegps
     integer :: i1, icyr, imo, iday, idhr, idmin, idsec, jchange
     integer :: jpos, len, iiyergps, iiyerave, iweekday
     integer :: nobuf, icsec, idchange, idirck, ix, i
@@ -1288,8 +1289,11 @@
 
     ! ---- Label 750: GPS second comparison ----
     gpssec1 = csec
-    if (igps == 1) then
-       if (gpssec1 < 10.0 .and. gpssec >= 50.0) then
+    iminboundary = 0
+    iwrotegps = 0
+    if (gpssec1 < 10.0 .and. gpssec >= 50.0) then
+       iminboundary = 1
+       if (igps == 1) then
           inav = 1
           if (iw == 1 .and. ierrlev == 6) &
                write(ifile, *) '5? to 1?  inav=', inav, ' ibuf=', ibuf
@@ -1349,6 +1353,7 @@
                    call chkall(vlat, vlon, speed, dir, ierrwrite)
 
                    if (ierrwrite /= 1 .and. avlath(1:1) /= ' ') then
+                      iwrotegps = 1
                       ! Write to date.nav
                       open(10, file=afilen, form='formatted', status='unknown', &
                            access='append', iostat=ios)
@@ -1577,6 +1582,57 @@
        else if (drlon > 360.0) then
           drlon = 360.0 - drlon
        end if
+
+       ! ---- Periodic DR write: this minute had no GPS-averaged ----
+       ! ---- position written to .nav, so log the DR position instead ----
+       if (iminboundary == 1 .and. iwrotegps == 0) then
+          call timetohms(ctime * 3600.0, ihr, imin, isec)
+          call dec2deg('lat', ivlatd, vlatm, avlath, vlat1)
+          call dec2deg('lon', ivlond, vlonm, avlonh, vlon1)
+
+          if (avlath(1:1) /= ' ') then
+             ! Write to date.nav
+             open(10, file=afilen, form='formatted', status='unknown', &
+                  access='append', iostat=ios)
+             if (ios /= 0) then
+                ierror(5) = 1
+                ierror(34) = icday
+                ierror(36) = icmon
+                ierror(37) = icyear
+             else
+                write(10, '(a2,a,a2,a,a2,a,i2,a,i2,a,i2,a,' // &
+                     'i3,a,f7.4,a,a1,a,i3,a,f7.4,a,a1,a,a3,a,f5.2,a,f5.1,i3)', &
+                     iostat=ios) &
+                     adosday, '/', adosmon, '/', adosyear(3:4), ' ', &
+                     ihr, ':', imin, ':', isec, ' ', &
+                     abs(ivlatd), ' ', vlatm, ' ', avlath, ' ', &
+                     ivlond, ' ', vlonm, ' ', avlonh, ' ', &
+                     'DED', ' ', speed, ' ', dir, 0
+                if (ios /= 0) then
+                   ierror(6) = 1
+                   ierror(34) = icday
+                   ierror(36) = icmon
+                   ierror(37) = icyear
+                end if
+                close(10, iostat=ios)
+             end if
+
+             ! Write to navtrk.dat
+             open(15, file=anavtrk, form='formatted', status='unknown', &
+                  iostat=ios)
+             if (ios /= 0) then
+                ierror(23) = 1
+             else
+                rewind(15, iostat=ios)
+                write(15, '(a2,a,a2,a,a2,a,i2,a,i2,a,i2,a,f7.3,f8.3,f6.2,f7.2)', &
+                     iostat=ios) &
+                     adosday, '/', adosmon, '/', adosyear(3:4), ' ', &
+                     ihr, ':', imin, ':', isec, ' ', vlat1, vlon1, speed, dir
+                if (ios /= 0) ierror(14) = 1
+                close(15, iostat=ios)
+             end if
+          end if
+       end if
     end if
 
     ! ---- Label 90: check stoptime for drop ----
@@ -1597,41 +1653,8 @@
     ! ---- Label 101: closing ----
     ifirst = 1
 
-    ! NO GPS day rollover: write DR position to nav file
-    if (igps == 2 .and. irollnav == 1) then
-       irollnav = 0
-       call dec2deg('lat', ivlatd, vlatm, avlath, vlat1)
-       call dec2deg('lon', ivlond, vlonm, avlonh, vlon1)
-
-       open(10, file=afilen, form='formatted', status='unknown', iostat=ios)
-       if (ios /= 0) then
-          ierror(5) = 1
-          ierror(34) = icday; ierror(36) = icmon; ierror(37) = icyear
-       else
-          write(10, '(a2,a,a2,a,a2,1x,a8,1x,i3,1x,f7.4,1x,a1,1x,i3,1x,f7.4,' // &
-               '1x,a1,1x,a3,1x,f5.2,1x,f5.1,i3)', iostat=ios) &
-               adosday, '/', adosmon, '/', adosyear(3:4), '00:00:01', &
-               abs(ivlatd), vlatm, avlath, ivlond, vlonm, avlonh, 'DED', speed, dir, 0
-          if (ios /= 0) then
-             ierror(6) = 1
-             ierror(34) = icday; ierror(36) = icmon; ierror(37) = icyear
-          end if
-       end if
-       close(10, iostat=ios)
-
-       ! Write to navtrk.dat
-       open(15, file=anavtrk, form='formatted', status='unknown', iostat=ios)
-       if (ios /= 0) then
-          ierror(23) = 1
-       else
-          rewind(15, iostat=ios)
-          write(15, '(a2,a,a2,a,a2,1x,a8,1x,f7.3,f8.3,f6.2,f7.2)', iostat=ios) &
-               adosday, '/', adosmon, '/', adosyear(3:4), '00:00:01', &
-               vlat1, vlon1, speed, dir
-          if (ios /= 0) ierror(14) = 1
-       end if
-       close(15, iostat=ios)
-    end if
+    ! NOTE: the periodic DR write above (keyed off iminboundary/iwrotegps)
+    ! now covers the no-GPS day-rollover case that used to be handled here.
 
     ! Reset irollnav
     if (irollnav == 1) then

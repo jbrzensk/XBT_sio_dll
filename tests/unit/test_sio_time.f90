@@ -6,18 +6,25 @@ program test_sio_time
 
   call test_timetohms_basic(failures)
   call test_timetohms_multiday(failures)
+  call test_timetohms_zero(failures)
   call test_gettmtg_monday_noon(failures)
   call test_gettmtg_sunday_midnight(failures)
   call test_yrdy_jan1(failures)
   call test_yrdy_feb1_leap(failures)
   call test_yrdy_mar1_nonleap(failures)
   call test_yrdy_crossyear(failures)
+  call test_yrdy_epoch(failures)
   call test_compare_first_later(failures)
   call test_compare_first_earlier(failures)
   call test_compare_equal(failures)
+  call test_compare_year_later(failures)
+  call test_compare_month_later(failures)
+  call test_compare_hour_later(failures)
   call test_findtime_later(failures)
   call test_findtime_earlier(failures)
   call test_findtime_equal(failures)
+  call test_dayofw_valid_range(failures)
+  call test_getdat_valid_range(failures)
 
   if (failures == 0) then
     print *, 'test_sio_time: ALL TESTS PASSED'
@@ -52,6 +59,19 @@ contains
       failures = failures + 1
     else
       print *, 'PASS test_timetohms_multiday'
+    end if
+  end subroutine
+
+  ! timetohms(0.0): ix=0, no day stripping → 0:00:00
+  subroutine test_timetohms_zero(failures)
+    integer, intent(inout) :: failures
+    integer :: ihr, imin, isec
+    call timetohms(0.0, ihr, imin, isec)
+    if (ihr /= 0 .or. imin /= 0 .or. isec /= 0) then
+      print *, 'FAIL test_timetohms_zero: ihr=', ihr, ' imin=', imin, ' isec=', isec
+      failures = failures + 1
+    else
+      print *, 'PASS test_timetohms_zero'
     end if
   end subroutine
 
@@ -124,15 +144,26 @@ contains
     integer, intent(inout) :: failures
     real :: yrday_dec31, yrday_jan1
     ! Dec 31 2024 < Jan 1 2025 (monotonically increasing across year boundary)
-    ! Dec 31 2024: 2024 is leap (366 days), so day 366 = 8766 + 365 = 9131.0
     call yrdy(2024, 12, 31, 0, 0, 0, yrday_dec31)
-    ! Jan 1 2025: 25*365 + 7 leap yrs = 9132.0
     call yrdy(2025, 1, 1, 0, 0, 0, yrday_jan1)
     if (yrday_jan1 <= yrday_dec31) then
       print *, 'FAIL test_yrdy_crossyear: jan1_2025=', yrday_jan1, ' dec31_2024=', yrday_dec31
       failures = failures + 1
     else
       print *, 'PASS test_yrdy_crossyear'
+    end if
+  end subroutine
+
+  ! yrdy at epoch (kkyr=2000): exercises the else branch (lcount=0), yrday=0.0
+  subroutine test_yrdy_epoch(failures)
+    integer, intent(inout) :: failures
+    real :: yrday
+    call yrdy(2000, 1, 1, 0, 0, 0, yrday)
+    if (abs(yrday) > 0.01) then
+      print *, 'FAIL test_yrdy_epoch: yrday=', yrday, ' expected 0.0'
+      failures = failures + 1
+    else
+      print *, 'PASS test_yrdy_epoch'
     end if
   end subroutine
 
@@ -159,6 +190,58 @@ contains
       failures = failures + 1
     else
       print *, 'PASS test_compare_first_earlier'
+    end if
+  end subroutine
+
+  subroutine test_compare_equal(failures)
+    integer, intent(inout) :: failures
+    integer :: iflg
+    ! identical date/time → iflg=0 (not strictly more recent)
+    call compare(1, 1, 2024, 12, 30, 45, 1, 1, 2024, 12, 30, 45, iflg)
+    if (iflg /= 0) then
+      print *, 'FAIL test_compare_equal: iflg =', iflg, ' expected 0'
+      failures = failures + 1
+    else
+      print *, 'PASS test_compare_equal'
+    end if
+  end subroutine
+
+  ! compare: first year > second year → iflg=1 (exercises nyear > iyear branch)
+  subroutine test_compare_year_later(failures)
+    integer, intent(inout) :: failures
+    integer :: iflg
+    call compare(1, 1, 2025, 0, 0, 0, 1, 1, 2024, 0, 0, 0, iflg)
+    if (iflg /= 1) then
+      print *, 'FAIL test_compare_year_later: iflg=', iflg, ' expected 1'
+      failures = failures + 1
+    else
+      print *, 'PASS test_compare_year_later'
+    end if
+  end subroutine
+
+  ! compare: same year, first month > second month → iflg=1 (nyear==iyear path, nmon>imon branch)
+  subroutine test_compare_month_later(failures)
+    integer, intent(inout) :: failures
+    integer :: iflg
+    call compare(1, 6, 2024, 0, 0, 0, 1, 3, 2024, 0, 0, 0, iflg)
+    if (iflg /= 1) then
+      print *, 'FAIL test_compare_month_later: iflg=', iflg, ' expected 1'
+      failures = failures + 1
+    else
+      print *, 'PASS test_compare_month_later'
+    end if
+  end subroutine
+
+  ! compare: same date, first hour > second hour → iflg=1 (exercises nhr > ihr branch)
+  subroutine test_compare_hour_later(failures)
+    integer, intent(inout) :: failures
+    integer :: iflg
+    call compare(1, 6, 2024, 14, 0, 0, 1, 6, 2024, 12, 0, 0, iflg)
+    if (iflg /= 1) then
+      print *, 'FAIL test_compare_hour_later: iflg=', iflg, ' expected 1'
+      failures = failures + 1
+    else
+      print *, 'PASS test_compare_hour_later'
     end if
   end subroutine
 
@@ -201,16 +284,29 @@ contains
     end if
   end subroutine
 
-  subroutine test_compare_equal(failures)
+  ! dayofw: smoke test using system clock — only verify result is in [0,6]
+  subroutine test_dayofw_valid_range(failures)
     integer, intent(inout) :: failures
-    integer :: iflg
-    ! identical date/time → iflg=0 (not strictly more recent)
-    call compare(1, 1, 2024, 12, 30, 45, 1, 1, 2024, 12, 30, 45, iflg)
-    if (iflg /= 0) then
-      print *, 'FAIL test_compare_equal: iflg =', iflg, ' expected 0'
+    integer :: iweekday
+    call dayofw(iweekday)
+    if (iweekday < 0 .or. iweekday > 6) then
+      print *, 'FAIL test_dayofw_valid_range: iweekday=', iweekday, ' expected 0-6'
       failures = failures + 1
     else
-      print *, 'PASS test_compare_equal'
+      print *, 'PASS test_dayofw_valid_range: iweekday=', iweekday
+    end if
+  end subroutine
+
+  ! getdat: smoke test using system clock — verify year, month, day are valid
+  subroutine test_getdat_valid_range(failures)
+    integer, intent(inout) :: failures
+    integer(kind=2) :: iyr, imo, iday
+    call getdat(iyr, imo, iday)
+    if (iyr < 2000 .or. imo < 1 .or. imo > 12 .or. iday < 1 .or. iday > 31) then
+      print *, 'FAIL test_getdat_valid_range: iyr=', iyr, ' imo=', imo, ' iday=', iday
+      failures = failures + 1
+    else
+      print *, 'PASS test_getdat_valid_range: iyr=', iyr, ' imo=', imo, ' iday=', iday
     end if
   end subroutine
 

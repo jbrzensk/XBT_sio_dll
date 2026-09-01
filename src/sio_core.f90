@@ -120,7 +120,7 @@ contains
          tdzmx, tdzrms, dtdzmn, dtdzth, dtmx, dtmx700, &
          tm_pl_mx, tm_pl_mn, iSIOSpeedAveMin, len_adir, adir, iw, ifile)
 
-    if (ierror(33) == 6) ierrlev = 6
+    if (ierror(33) /= 0) ierrlev = 6
     if (ierror(15) /= 0 .or. ierror(16) /= 0) then
       ireturn = 1
       call gpspos_cleanup(iw, ifile)

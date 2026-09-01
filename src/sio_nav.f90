@@ -33,7 +33,7 @@ contains
     ! SAVE state for persistent averaging buffers
     real,    save :: tbuf(10), xltbuf(10), xlnbuf(10)
     real,    save :: ylatsav, ylonsav
-    integer, save :: iSIOsave, iSIOset
+    integer, save :: iSIOsave = 0, iSIOset = 0
 
     real    :: w(200), r(200), b(220)
     real    :: deg2rad, eps
