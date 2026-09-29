@@ -726,20 +726,35 @@ contains
   end subroutine chkall
 
   ! Validate GPS buffer values for outliers. siosub.for:482.
+  ! Each entry is compared with the buffer's median time and position, so a
+  ! bad last entry can no longer throw out (or be kept instead of) the good
+  ! ones. Entries more than 400 s or 0.5 deg from the median are packed out;
+  ! ierr=1 if fewer than 3 entries or the flagged ones are not a minority.
+  ! Timetags are not unwrapped at midnight: ave cannot fit across it, so the
+  ! minority side of midnight is packed out.
   subroutine chkbuf(ibuf, clatbuf, clonbuf, ctagbuf, ierr, iw, ifile)
     integer, intent(in)    :: iw, ifile
     integer, intent(inout) :: ibuf
     real,    intent(inout) :: clatbuf(200), clonbuf(200), ctagbuf(200)
     integer, intent(out)   :: ierr
 
+    real, parameter :: tagtol = 400.0     ! seconds from median time
+    real, parameter :: postol = 0.5       ! degrees from median lat / lon
+    real, parameter :: deg2rad = 3.141592654 / 180.0
     real    :: clatbuf1(200), clonbuf1(200), ctagbuf1(200)
+    real    :: dlon(200)
+    real    :: tagmed, latmed, dlonmed, lonref, sx, sy
     integer :: imark(200)
-    integer :: i, ibad, ibad2, ibufnew
+    integer :: i, ibad, ibufnew
 
     ierr   = 0
     ibad   = 0
-    ibad2  = 0
     ibufnew = 0
+
+    if (ibuf < 3) then
+      ierr = 1
+      return
+    end if
 
     do i = 1, ibuf
       imark(i) = 0
@@ -753,36 +768,42 @@ contains
       end do
     end if
 
-    ! Flag timetags that are out-of-order or too far from last entry
-    do i = 1, ibuf - 1
-      if ( ctagbuf(i) > ctagbuf(ibuf) .or. &
-           (ctagbuf(ibuf) - ctagbuf(i)) > 400.0 ) then
+    ! Median references. Longitude: offsets from the circular mean (safe
+    ! across 0/360 and for E/W-flipped entries), then the median offset.
+    tagmed = median_of(ctagbuf, ibuf)
+    latmed = median_of(clatbuf, ibuf)
+    sx = 0.0
+    sy = 0.0
+    do i = 1, ibuf
+      sx = sx + cos(clonbuf(i) * deg2rad)
+      sy = sy + sin(clonbuf(i) * deg2rad)
+    end do
+    lonref = clonbuf(1)
+    if (sx*sx + sy*sy > 1.0e-6) lonref = atan2(sy, sx) / deg2rad
+    do i = 1, ibuf
+      dlon(i) = modulo(clonbuf(i) - lonref + 180.0, 360.0) - 180.0
+    end do
+    dlonmed = median_of(dlon, ibuf)
+
+    ! Flag entries too far from the median time or position
+    do i = 1, ibuf
+      if ( abs(ctagbuf(i) - tagmed) > tagtol .or. &
+           abs(clatbuf(i) - latmed) > postol .or. &
+           abs(dlon(i) - dlonmed) > postol ) then
         ibad = ibad + 1
         imark(i) = 1
       end if
     end do
 
-    if (ibad >= (ibuf - 1) .or. ibad > 10) then
-      ierr = 1
-      return
-    end if
-
-    ! Flag lat/lon points too far from last entry
-    do i = 1, ibuf - 1
-      if ( abs(clatbuf(ibuf) - clatbuf(i)) > 0.5 .or. &
-           abs(clonbuf(ibuf) - clonbuf(i)) > 0.5 ) then
-        ibad2 = ibad2 + 1
-        imark(i) = 2
-      end if
-    end do
-
-    if (ibad2 >= (ibuf - 1) .or. ibad2 > 10) then
+    if (2 * ibad >= ibuf) then
+      if (iw == 1) write(ifile,*) 'chkbuf: rejected buffer,', ibad, ' of', ibuf, ' bad'
       ierr = 1
       return
     end if
 
     ! If no bad points, done
-    if (ibad == 0 .and. ibad2 == 0) return
+    if (ibad == 0) return
+    if (iw == 1) write(ifile,*) 'chkbuf: dropped', ibad, ' of', ibuf
 
     ! Pack out the bad points
     do i = 1, ibuf
@@ -802,6 +823,26 @@ contains
     end do
 
   end subroutine chkbuf
+
+  ! Median of x(1:n) (the lower middle element when n is even)
+  real function median_of(x, n)
+    integer, intent(in) :: n
+    real,    intent(in) :: x(n)
+    real    :: y(n), v
+    integer :: i, j
+    y = x
+    do i = 2, n
+      v = y(i)
+      j = i - 1
+      do while (j >= 1)
+        if (y(j) <= v) exit
+        y(j + 1) = y(j)
+        j = j - 1
+      end do
+      y(j + 1) = v
+    end do
+    median_of = y((n + 1) / 2)
+  end function median_of
 
   ! Validate lat/lon before writing to nav file. siosub.for:810.
   subroutine chkwrite(ylat, ylon, ierr)

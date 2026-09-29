@@ -100,12 +100,19 @@ program test_sio_nav
   call test_xbteta_perpendicular_heading_no_crash(failures)
 
   ! chkbuf
-  call test_chkbuf_single_point_bug(failures)
+  call test_chkbuf_single_point_rejected(failures)
   call test_chkbuf_all_good(failures)
   call test_chkbuf_bad_timetag_packed_out(failures)
   call test_chkbuf_bad_latlon_packed_out(failures)
   call test_chkbuf_too_many_bad_times(failures)
   call test_chkbuf_saturday_rollover(failures)
+  call test_chkbuf_stale_last_entry_keeps_good(failures)
+  call test_chkbuf_flipped_last_entry_keeps_good(failures)
+  call test_chkbuf_stale_block_at_end_packed_out(failures)
+  call test_chkbuf_greenwich_crossing_kept(failures)
+  call test_chkbuf_flipped_lon_across_dateline(failures)
+  call test_chkbuf_no_majority_rejected(failures)
+  call test_chkbuf_midnight_keeps_majority_side(failures)
 
   ! ave  (sequential: saves state across calls within the same test)
   call test_ave_ibuf_zero(failures)
@@ -1112,22 +1119,20 @@ contains
   ! chkbuf
   ! ---------------------------------------------------------------------------
 
-  subroutine test_chkbuf_single_point_bug(failures)
-    ! BUG #3: ibuf=1 triggers ibad >= (ibuf-1) = 0 >= 0 → ierr=1 even with valid data.
-    ! This test documents the known behavior.
+  subroutine test_chkbuf_single_point_rejected(failures)
+    ! Fewer than 3 points cannot form a median that outvotes a bad one → ierr=1
+    ! (was Bug #3 under the last-entry reference; now intentional)
     integer, intent(inout) :: failures
     integer :: ibuf, ierr
     real :: clatbuf(200), clonbuf(200), ctagbuf(200)
     ibuf = 1
     clatbuf(1) = 30.0; clonbuf(1) = 200.0; ctagbuf(1) = 100.0
     call chkbuf(ibuf, clatbuf, clonbuf, ctagbuf, ierr, 0, 0)
-    ! Documented behavior: ierr=1 for single-point buffer (Bug #3)
     if (ierr /= 1) then
-      print *, 'FAIL test_chkbuf_single_point_bug: ierr=', ierr, &
-               ' (Bug #3: expected 1 even for valid single point)'
+      print *, 'FAIL test_chkbuf_single_point_rejected: ierr=', ierr, ' expected 1'
       failures = failures + 1
     else
-      print *, 'PASS test_chkbuf_single_point_bug (Bug #3 documented)'
+      print *, 'PASS test_chkbuf_single_point_rejected'
     end if
   end subroutine
 
@@ -1150,12 +1155,12 @@ contains
   end subroutine
 
   subroutine test_chkbuf_bad_timetag_packed_out(failures)
-    ! ctagbuf(1) ahead of ctagbuf(3) → first entry marked bad, packed out → ibuf=2
+    ! ctagbuf(1) >400 s from the median time → marked bad, packed out → ibuf=2
     integer, intent(inout) :: failures
     integer :: ibuf, ierr
     real :: clatbuf(200), clonbuf(200), ctagbuf(200)
     ibuf = 3
-    ctagbuf(1)=500.0; clatbuf(1)=30.05; clonbuf(1)=200.05   ! bad: 500 > ctagbuf(3)=300
+    ctagbuf(1)=1500.0; clatbuf(1)=30.05; clonbuf(1)=200.05  ! bad: 1200 s from median 300
     ctagbuf(2)=200.0; clatbuf(2)=30.05; clonbuf(2)=200.05
     ctagbuf(3)=300.0; clatbuf(3)=30.10; clonbuf(3)=200.10
     call chkbuf(ibuf, clatbuf, clonbuf, ctagbuf, ierr, 0, 0)
@@ -1186,14 +1191,14 @@ contains
   end subroutine
 
   subroutine test_chkbuf_too_many_bad_times(failures)
-    ! Both non-last entries out of order: ibad=2 >= ibuf-1=2 → ierr=1
+    ! No two timetags within 400 s: 2 of 3 flagged vs the median → no majority → ierr=1
     integer, intent(inout) :: failures
     integer :: ibuf, ierr
     real :: clatbuf(200), clonbuf(200), ctagbuf(200)
     ibuf = 3
-    ctagbuf(1)=600.0; clatbuf(1)=30.00; clonbuf(1)=200.00   ! bad: 600 > 300
-    ctagbuf(2)=700.0; clatbuf(2)=30.05; clonbuf(2)=200.05   ! bad: 700 > 300
-    ctagbuf(3)=300.0; clatbuf(3)=30.10; clonbuf(3)=200.10
+    ctagbuf(1)=100.0;  clatbuf(1)=30.00; clonbuf(1)=200.00  ! bad: 1400 s from 1500
+    ctagbuf(2)=1500.0; clatbuf(2)=30.05; clonbuf(2)=200.05
+    ctagbuf(3)=3000.0; clatbuf(3)=30.10; clonbuf(3)=200.10  ! bad: 1500 s from 1500
     call chkbuf(ibuf, clatbuf, clonbuf, ctagbuf, ierr, 0, 0)
     if (ierr /= 1) then
       print *, 'FAIL test_chkbuf_too_many_bad_times: ierr=', ierr, ' expected 1'
@@ -1220,6 +1225,122 @@ contains
     else
       print *, 'PASS test_chkbuf_saturday_rollover'
     end if
+  end subroutine
+
+  ! n good 1 Hz fixes from (t0, lat0, lon0), steaming NE at ~1 kn-ish
+  subroutine fill_good(n, t0, lat0, lon0, ctagbuf, clatbuf, clonbuf)
+    integer, intent(in) :: n
+    real,    intent(in) :: t0, lat0, lon0
+    real,    intent(inout) :: ctagbuf(200), clatbuf(200), clonbuf(200)
+    integer :: i
+    do i = 1, n
+      ctagbuf(i) = t0 + real(i - 1)
+      clatbuf(i) = lat0 + 0.0001 * real(i - 1)
+      clonbuf(i) = modulo(lon0 + 0.0001 * real(i - 1), 360.0)
+    end do
+  end subroutine
+
+  subroutine test_chkbuf_stale_last_entry_keeps_good(failures)
+    ! Last entry is a stale Garmin sentence (16 min old). The last-entry
+    ! reference flagged all 9 good fixes and threw the minute away.
+    integer, intent(inout) :: failures
+    integer :: ibuf, ierr
+    real :: clatbuf(200), clonbuf(200), ctagbuf(200)
+    call fill_good(9, 43000.0, 30.0, 200.0, ctagbuf, clatbuf, clonbuf)
+    ibuf = 10
+    ctagbuf(10) = 43000.0 - 960.0; clatbuf(10) = clatbuf(9); clonbuf(10) = clonbuf(9)
+    call chkbuf(ibuf, clatbuf, clonbuf, ctagbuf, ierr, 0, 0)
+    call report('test_chkbuf_stale_last_entry_keeps_good', &
+         ierr == 0 .and. ibuf == 9 .and. ctagbuf(9) == 43008.0, failures)
+  end subroutine
+
+  subroutine test_chkbuf_flipped_last_entry_keeps_good(failures)
+    ! Last entry has its hemisphere flipped (Seas: cardinal not exactly "N")
+    integer, intent(inout) :: failures
+    integer :: ibuf, ierr
+    real :: clatbuf(200), clonbuf(200), ctagbuf(200)
+    call fill_good(9, 43000.0, 30.0, 200.0, ctagbuf, clatbuf, clonbuf)
+    ibuf = 10
+    ctagbuf(10) = 43009.0; clatbuf(10) = -clatbuf(9); clonbuf(10) = clonbuf(9)
+    call chkbuf(ibuf, clatbuf, clonbuf, ctagbuf, ierr, 0, 0)
+    call report('test_chkbuf_flipped_last_entry_keeps_good', &
+         ierr == 0 .and. ibuf == 9 .and. all(clatbuf(1:9) > 0.0), failures)
+  end subroutine
+
+  subroutine test_chkbuf_stale_block_at_end_packed_out(failures)
+    ! 7 good fixes, then 3 stale ones. The last-entry reference kept the 3
+    ! stale fixes and packed out the 7 good ones, so ave fitted stale data.
+    integer, intent(inout) :: failures
+    integer :: ibuf, ierr, i
+    real :: clatbuf(200), clonbuf(200), ctagbuf(200)
+    call fill_good(7, 43000.0, 30.0, 200.0, ctagbuf, clatbuf, clonbuf)
+    ibuf = 10
+    do i = 8, 10
+      ctagbuf(i) = 43000.0 - 960.0 + real(i - 8)
+      clatbuf(i) = 29.99; clonbuf(i) = 199.99
+    end do
+    call chkbuf(ibuf, clatbuf, clonbuf, ctagbuf, ierr, 0, 0)
+    call report('test_chkbuf_stale_block_at_end_packed_out', &
+         ierr == 0 .and. ibuf == 7 .and. all(ctagbuf(1:7) >= 43000.0), failures)
+  end subroutine
+
+  subroutine test_chkbuf_greenwich_crossing_kept(failures)
+    ! Buffer straddles lon 0/360: all 5 fixes are within 0.04 deg of each other
+    integer, intent(inout) :: failures
+    integer :: ibuf, ierr
+    real :: clatbuf(200), clonbuf(200), ctagbuf(200)
+    ibuf = 5
+    ctagbuf(1:5) = (/ 100.0, 101.0, 102.0, 103.0, 104.0 /)
+    clatbuf(1:5) = 50.0
+    clonbuf(1:5) = (/ 359.98, 359.99, 0.00, 0.01, 0.02 /)
+    call chkbuf(ibuf, clatbuf, clonbuf, ctagbuf, ierr, 0, 0)
+    call report('test_chkbuf_greenwich_crossing_kept', &
+         ierr == 0 .and. ibuf == 5, failures)
+  end subroutine
+
+  subroutine test_chkbuf_flipped_lon_across_dateline(failures)
+    ! First entry has E/W flipped (20 vs 200): exactly 180 deg from the good
+    ! fixes, which sit either side of it. Only the flipped entry is dropped.
+    integer, intent(inout) :: failures
+    integer :: ibuf, ierr
+    real :: clatbuf(200), clonbuf(200), ctagbuf(200)
+    ibuf = 6
+    ctagbuf(1:6) = (/ 100.0, 101.0, 102.0, 103.0, 104.0, 105.0 /)
+    clatbuf(1:6) = 30.0
+    clonbuf(1:6) = (/ 20.0, 200.01, 199.99, 200.02, 199.98, 200.00 /)
+    call chkbuf(ibuf, clatbuf, clonbuf, ctagbuf, ierr, 0, 0)
+    call report('test_chkbuf_flipped_lon_across_dateline', &
+         ierr == 0 .and. ibuf == 5 .and. all(clonbuf(1:5) > 199.0), failures)
+  end subroutine
+
+  subroutine test_chkbuf_no_majority_rejected(failures)
+    ! Two equal clusters 5 deg apart: no majority to trust → whole minute rejected
+    integer, intent(inout) :: failures
+    integer :: ibuf, ierr
+    real :: clatbuf(200), clonbuf(200), ctagbuf(200)
+    ibuf = 6
+    ctagbuf(1:6) = (/ 100.0, 101.0, 102.0, 103.0, 104.0, 105.0 /)
+    clatbuf(1:6) = (/ 30.0, 35.0, 30.0, 35.0, 30.0, 35.0 /)
+    clonbuf(1:6) = 200.0
+    call chkbuf(ibuf, clatbuf, clonbuf, ctagbuf, ierr, 0, 0)
+    call report('test_chkbuf_no_majority_rejected', ierr == 1, failures)
+  end subroutine
+
+  subroutine test_chkbuf_midnight_keeps_majority_side(failures)
+    ! Buffer spans GPS midnight: 30 fixes before, 6 after. The pre-midnight
+    ! majority is kept (ave cannot fit across the 86400 -> 0 wrap); the last-
+    ! entry reference flagged the 30 and lost the whole minute.
+    integer, intent(inout) :: failures
+    integer :: ibuf, ierr, i
+    real :: clatbuf(200), clonbuf(200), ctagbuf(200)
+    call fill_good(36, 86370.0, 30.0, 200.0, ctagbuf, clatbuf, clonbuf)
+    do i = 31, 36
+      ctagbuf(i) = ctagbuf(i) - 86400.0
+    end do
+    ibuf = 36
+    call chkbuf(ibuf, clatbuf, clonbuf, ctagbuf, ierr, 0, 0)
+    call report('test_chkbuf_midnight_keeps_majority_side', &
+         ierr == 0 .and. ibuf == 30 .and. ctagbuf(30) == 86399.0, failures)
   end subroutine
 
   ! ---------------------------------------------------------------------------
