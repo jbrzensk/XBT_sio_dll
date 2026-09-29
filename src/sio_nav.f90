@@ -6,7 +6,7 @@ module sio_nav
   implicit none
   private
   public :: ave, newpos, xbteta, interp, planinfo, chkall, chkbuf, chkwrite
-  public :: dr_elapsed, past_station, ave_consistent
+  public :: dr_elapsed, past_station, ave_consistent, check_time, check_fix
 
   integer, parameter :: nerr = 50
 
@@ -432,6 +432,123 @@ contains
     de_nm = dlon * 60.0 * cos(vlat_new * deg2rad)
     ave_consistent = sqrt(dn_nm*dn_nm + de_nm*de_nm) <= tol_nm
   end function ave_consistent
+
+  ! Check the GPS time Seas passes in (taken from the NMEA sentence) against
+  ! the PC clock. Stale buffered Garmin sentences and mashed strings carry
+  ! bad times (9/8/26); a bad time is replaced by the predicted one.
+  ! ctag  - incoming GPS time, seconds of day
+  ! itime - PC-clock seconds counter (sioloop's itime)
+  ! tref,itref - last good GPS time and itime it arrived at (tref<0: none)
+  ! tcand,itcand,ncand - run of rejected times that advance consistently with
+  !         each other; 5 in a row re-sync the reference (e.g. PC clock step).
+  !         A frozen or random time never does.
+  ! ok    - ctag agrees with tref + PC elapsed within 30 s
+  ! tgood - time to use: ctag if ok, else tref + PC elapsed (wrapped to a day)
+  subroutine check_time(ctag, itime, tref, itref, tcand, itcand, ncand, ok, tgood)
+    real,    intent(in)    :: ctag
+    integer, intent(in)    :: itime
+    real,    intent(inout) :: tref, tcand
+    integer, intent(inout) :: itref, itcand, ncand
+    logical, intent(out)   :: ok
+    real,    intent(out)   :: tgood
+    real,    parameter :: tol = 30.0     ! s, GPS time vs PC clock
+    real,    parameter :: tolc = 10.0    ! s, between consecutive candidates
+    integer, parameter :: nadopt = 5
+    real :: dc
+
+    ok = .true.
+    tgood = ctag
+    if (tref < 0.0 .or. itime < itref) then    ! no (valid) reference yet
+      tref = ctag; itref = itime; ncand = 0
+      return
+    end if
+    if (abs(day_diff(ctag, tref + real(itime - itref))) <= tol) then
+      tref = ctag; itref = itime; ncand = 0
+      return
+    end if
+
+    ok = .false.
+    tgood = modulo(tref + real(itime - itref), 86400.0)
+    dc = day_diff(ctag, tcand)
+    if (ncand > 0 .and. itime > itcand .and. dc > 0.0 .and. &
+        abs(dc - real(itime - itcand)) <= tolc) then
+      ncand = ncand + 1
+    else
+      ncand = 1
+    end if
+    tcand = ctag; itcand = itime
+    if (ncand >= nadopt) then
+      tref = ctag; itref = itime; ncand = 0
+      ok = .true.
+      tgood = ctag
+    end if
+  end subroutine check_time
+
+  ! Check an incoming GPS position (iupdate=1) for plausibility. Seas turns
+  ! any latitude cardinal other than "N" into S (and any longitude cardinal
+  ! other than "E" into W), and empty fields into 0, so partial strings
+  ! arrive as valid-looking but far-away positions.
+  ! clat,clon - incoming fix (decimal deg, lon 0-360 E); itime - PC seconds
+  ! xmaxspd   - max believable ship speed (kt)
+  ! alat,alon,ita - last accepted fix and the itime it arrived at (ita<0: none)
+  ! clatc,clonc,itc,nc - run of rejected fixes consistent with each other;
+  !         5 in a row re-sync the reference (e.g. the reference was bad)
+  ! ok  - in range, not 0/0, and within xmaxspd*elapsed + 0.1 nm of the
+  !       last accepted fix
+  subroutine check_fix(clat, clon, itime, xmaxspd, alat, alon, ita, &
+                       clatc, clonc, itc, nc, ok)
+    real,    intent(in)    :: clat, clon, xmaxspd
+    integer, intent(in)    :: itime
+    real,    intent(inout) :: alat, alon, clatc, clonc
+    integer, intent(inout) :: ita, itc, nc
+    logical, intent(out)   :: ok
+    integer, parameter :: nadopt = 5
+    real,    parameter :: zero = 1.0e-4
+
+    ok = .false.
+    if (abs(clat) > 90.0 .or. clon < 0.0 .or. clon > 360.0) return
+    if (abs(clat) < zero .and. (clon < zero .or. clon > 360.0 - zero)) return
+
+    if (ita < 0 .or. itime < ita) then
+      ok = .true.
+    else if (fix_reachable(clat, clon, alat, alon, itime - ita, xmaxspd)) then
+      ok = .true.
+    else
+      if (nc > 0 .and. itime > itc .and. &
+          fix_reachable(clat, clon, clatc, clonc, itime - itc, xmaxspd)) then
+        nc = nc + 1
+      else
+        nc = 1
+      end if
+      clatc = clat; clonc = clon; itc = itime
+      if (nc >= nadopt) ok = .true.
+    end if
+    if (ok) then
+      alat = clat; alon = clon; ita = itime; nc = 0
+    end if
+  end subroutine check_fix
+
+  ! Could the ship have got from (alat,alon) to (clat,clon) in idt seconds?
+  logical function fix_reachable(clat, clon, alat, alon, idt, xmaxspd)
+    real,    intent(in) :: clat, clon, alat, alon, xmaxspd
+    integer, intent(in) :: idt
+    real, parameter :: slack_nm = 0.1    ! GPS noise / receiver offsets
+    real, parameter :: deg2rad = 3.141592654 / 180.0
+    real :: dlon, dn, de
+    dlon = clon - alon
+    if (dlon >  180.0) dlon = dlon - 360.0
+    if (dlon < -180.0) dlon = dlon + 360.0
+    dn = (clat - alat) * 60.0
+    de = dlon * 60.0 * cos(0.5 * (clat + alat) * deg2rad)
+    fix_reachable = sqrt(dn*dn + de*de) <= xmaxspd * real(max(idt, 0)) / 3600.0 + slack_nm
+  end function fix_reachable
+
+  ! a - b for times of day, wrapped into (-43200, 43200] seconds
+  real function day_diff(a, b)
+    real, intent(in) :: a, b
+    day_diff = modulo(a - b + 43200.0, 86400.0) - 43200.0
+    if (day_diff <= -43200.0) day_diff = day_diff + 86400.0
+  end function day_diff
 
   ! Compute ETA (hours) to next drop positions. Ported from siosub.for:2233.
   ! Unused original params (ctime, xlat, xlon, ixhr, ixmin, ixsec) omitted.

@@ -996,7 +996,7 @@
     use sio_core
     use sio_io,      only: rdcntrl, getdir, chknav, getfilen, decodeplan, navopen
     use sio_nav,     only: ave, newpos, xbteta, interp, planinfo, chkall, chkbuf, chkwrite, &
-                           dr_elapsed, past_station, ave_consistent
+                           dr_elapsed, past_station, ave_consistent, check_time, check_fix
     use sio_time,    only: gettim, getdat, dayofw, gettmtg, timetohms, yrdy, compare, findtime, &
                            drops_too_close
     use sio_convert, only: ch2real, real2ch, int2ch, dec2deg, deg2dec, findspace, lev
@@ -1040,6 +1040,15 @@
     ! a drop is only armed from a trusted position (fix 3)
     logical, save :: postrust = .true.
     logical :: postrusted
+    ! Incoming GPS time and position checks (fix 1): last good GPS time and
+    ! fix, keyed to the PC-clock itime, plus the re-sync candidate runs
+    real,    save :: tref = -1.0, tcand = 0.0
+    integer, save :: itref = 0, itcand = 0, ntcand = 0
+    real,    save :: afixlat = 0.0, afixlon = 0.0, cfixlat = 0.0, cfixlon = 0.0
+    integer, save :: itafix = -1, itcfix = 0, ncfix = 0
+    logical :: timeok, fixok
+    real    :: tgood
+    integer :: iupd
 
     integer :: iw, ifile, ios, len_adir
     integer :: igderr(3)
@@ -1123,6 +1132,10 @@
        stoptime = 9.9e9
        itimeave = -1
        postrust = .true.
+       tref = -1.0
+       ntcand = 0
+       itafix = -1
+       ncfix = 0
     end if
 
     vlat1 = vlat
@@ -1164,6 +1177,23 @@
     itime = itime + idchange
     if (iw == 1 .and. ierrlev == 6) then
        write(ifile, *) 'dtime1=', dtime1, ' dtime=', dtime, ' itime=', itime
+    end if
+
+    ! ---- Check the incoming GPS time against the PC clock (fix 1) ----
+    ! Seas passes the time from the NMEA sentence; stale buffered or mashed
+    ! sentences carry bad times. Use the predicted time everywhere below,
+    ! and never use a position that came with a bad time.
+    iupd = iupdate
+    call check_time(chr*3600.0 + cmin*60.0 + csec, itime, tref, itref, &
+                    tcand, itcand, ntcand, timeok, tgood)
+    if (.not. timeok) then
+       if (iw == 1) write(ifile, *) 'GPS time rejected:', int(chr), int(cmin), &
+            int(csec), ' using', int(tgood / 3600.0), int(mod(tgood, 3600.0) / 60.0), &
+            int(mod(tgood, 60.0))
+       chr  = real(int(tgood / 3600.0))
+       cmin = real(int(mod(tgood, 3600.0) / 60.0))
+       csec = real(int(mod(tgood, 60.0)))
+       iupd = 0
     end if
 
     ! ---- Day rollover handling ----
@@ -1244,13 +1274,26 @@
     icsec  = int(csec)
     ctime  = chr + (cmin / 60.0) + (csec / 3600.0)
 
+    ! ---- Check the incoming GPS position (fix 1) ----
+    ! Seas sends S/W for any cardinal that is not exactly N/E and 0 for empty
+    ! fields, so partial strings arrive as far-away positions. A rejected fix
+    ! is treated as no update: not buffered, dead reckoning continues.
+    if (igps == 1 .and. iupd == 1) then
+       call deg2dec(int(clatd), clatm, aclath, clat)
+       call deg2dec(int(clond), clonm, aclonh, clon)
+       call check_fix(clat, clon, itime, xmaxspd, afixlat, afixlon, itafix, &
+                      cfixlat, cfixlon, itcfix, ncfix, fixok)
+       if (.not. fixok) then
+          if (iw == 1) write(ifile, *) 'GPS fix rejected:', clat, clon
+          iupd = 0
+       end if
+    end if
+
     ! ---- GPS buffer handling ----
     if (igps == 1) then
-       if (iupdate == 1) then
+       if (iupd == 1) then
           ibuf = ibuf + 1
           timetag = (chr + (cmin / 60.0) + (csec / 3600.0)) * 3600.0
-          call deg2dec(int(clatd), clatm, aclath, clat)
-          call deg2dec(int(clond), clonm, aclonh, clon)
           if (iw == 1 .and. ierrlev == 6) then
              write(ifile, *) 'csec=', int(csec), 'timetag=', timetag
              write(ifile, *) 'clat=', clat, ' clon=', clon
@@ -1271,7 +1314,7 @@
     end if
 
     ! ---- No-update / DR branch ----
-    if (iupdate == 0) then
+    if (iupd == 0) then
        if (csec /= gpssec) then
           ! Continue to position section (label 750)
        else
@@ -1538,7 +1581,7 @@
              if (aclath == 'S') iclath = 3
              call xbteta(xlatload360, vlat1, vlon1, speed, dir, &
                   ispec, nplan, ierrlev, nlnchr, eta, ifile)
-             if (deadmin > 0.0 .and. gpstime >= xalarm .and. iupdate == 0) then
+             if (deadmin > 0.0 .and. gpstime >= xalarm .and. iupd == 0) then
                 ierror(8) = 1
              end if
           end if
@@ -1562,7 +1605,7 @@
        end if
 
        ! GPS status
-       if (igps == 1 .and. iupdate == 1) then
+       if (igps == 1 .and. iupd == 1) then
           astat = 'NAV'
           istat = 1
        end if

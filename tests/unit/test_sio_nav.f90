@@ -57,6 +57,25 @@ program test_sio_nav
   call test_ave_consistent_stuck_same(failures)
   call test_ave_consistent_stuck_moved(failures)
 
+  ! check_time (incoming GPS time vs PC clock)
+  call test_check_time_no_reference(failures)
+  call test_check_time_normal_advance(failures)
+  call test_check_time_garbled_hour(failures)
+  call test_check_time_stale_garmin(failures)
+  call test_check_time_midnight(failures)
+  call test_check_time_frozen_never_adopted(failures)
+  call test_check_time_genuine_step_adopted(failures)
+
+  ! check_fix (incoming GPS position plausibility)
+  call test_check_fix_no_reference(failures)
+  call test_check_fix_normal(failures)
+  call test_check_fix_hemisphere_flip(failures)
+  call test_check_fix_null_island(failures)
+  call test_check_fix_zero_lat(failures)
+  call test_check_fix_isolated_jump(failures)
+  call test_check_fix_bad_reference_recovers(failures)
+  call test_check_fix_after_outage(failures)
+
   ! interp
   call test_interp_midpoint(failures)
   call test_interp_at_start(failures)
@@ -586,6 +605,233 @@ contains
     integer, intent(inout) :: failures
     call check_consistent('test_ave_consistent_stuck_moved', 33.6304 + 1.0/60.0, &
                           241.8317, 0.0, .false., failures)
+  end subroutine
+
+  ! ---------------------------------------------------------------------------
+  ! check_time(ctag, itime, tref, itref, tcand, itcand, ncand, ok, tgood)
+  !   ctag  - incoming GPS time (seconds of day); itime - PC seconds counter
+  !   tref,itref - last good GPS time and the itime it arrived at (tref<0: none)
+  !   tcand,itcand,ncand - run of self-consistent rejected times (re-sync)
+  !   ok    - incoming time agrees with tref + PC elapsed (within 30 s)
+  !   tgood - time to use downstream (ctag if ok, else predicted)
+  ! ---------------------------------------------------------------------------
+
+  subroutine report(name, cond, failures)
+    character(len=*), intent(in) :: name
+    logical, intent(in)    :: cond
+    integer, intent(inout) :: failures
+    if (.not. cond) then
+      print *, 'FAIL ', name
+      failures = failures + 1
+    else
+      print *, 'PASS ', name
+    end if
+  end subroutine
+
+  subroutine test_check_time_no_reference(failures)
+    integer, intent(inout) :: failures
+    real :: tref, tcand, tgood
+    integer :: itref, itcand, ncand
+    logical :: ok
+    tref = -1.0; itref = 0; tcand = 0.0; itcand = 0; ncand = 0
+    call check_time(43200.0, 100, tref, itref, tcand, itcand, ncand, ok, tgood)
+    call report('test_check_time_no_reference', &
+                ok .and. tgood == 43200.0 .and. tref == 43200.0 .and. itref == 100, failures)
+  end subroutine
+
+  subroutine test_check_time_normal_advance(failures)
+    integer, intent(inout) :: failures
+    real :: tref, tcand, tgood
+    integer :: itref, itcand, ncand
+    logical :: ok
+    tref = 43200.0; itref = 100; tcand = 0.0; itcand = 0; ncand = 0
+    call check_time(43205.0, 105, tref, itref, tcand, itcand, ncand, ok, tgood)
+    call report('test_check_time_normal_advance', &
+                ok .and. tgood == 43205.0 .and. tref == 43205.0 .and. itref == 105, failures)
+  end subroutine
+
+  ! 9/8/26: 11:39:30 good, then "10:40:00" 30 s later -> use 11:40:00
+  subroutine test_check_time_garbled_hour(failures)
+    integer, intent(inout) :: failures
+    real :: tref, tcand, tgood
+    integer :: itref, itcand, ncand
+    logical :: ok
+    tref = 41970.0; itref = 1000; tcand = 0.0; itcand = 0; ncand = 0
+    call check_time(38400.0, 1030, tref, itref, tcand, itcand, ncand, ok, tgood)
+    call report('test_check_time_garbled_hour', &
+                (.not. ok) .and. abs(tgood - 42000.0) < 0.01 .and. tref == 41970.0, failures)
+  end subroutine
+
+  ! Last Furuno 07:45:47, Garmin re-selected 25 s later sends buffered 07:31:03
+  subroutine test_check_time_stale_garmin(failures)
+    integer, intent(inout) :: failures
+    real :: tref, tcand, tgood
+    integer :: itref, itcand, ncand
+    logical :: ok
+    tref = 27947.0; itref = 500; tcand = 0.0; itcand = 0; ncand = 0
+    call check_time(27063.0, 525, tref, itref, tcand, itcand, ncand, ok, tgood)
+    call report('test_check_time_stale_garmin', &
+                (.not. ok) .and. abs(tgood - 27972.0) < 0.01, failures)
+  end subroutine
+
+  ! 23:59:58 then 00:00:02 four seconds later is fine
+  subroutine test_check_time_midnight(failures)
+    integer, intent(inout) :: failures
+    real :: tref, tcand, tgood
+    integer :: itref, itcand, ncand
+    logical :: ok
+    tref = 86398.0; itref = 10; tcand = 0.0; itcand = 0; ncand = 0
+    call check_time(2.0, 14, tref, itref, tcand, itcand, ncand, ok, tgood)
+    call report('test_check_time_midnight', ok .and. tgood == 2.0, failures)
+  end subroutine
+
+  ! A repeated stale time (Garmin buffer, 9/8 09:27-09:32) must never become
+  ! the reference, however long it repeats
+  subroutine test_check_time_frozen_never_adopted(failures)
+    integer, intent(inout) :: failures
+    real :: tref, tcand, tgood
+    integer :: itref, itcand, ncand, k
+    logical :: ok, anyok
+    tref = 34000.0; itref = 0; tcand = 0.0; itcand = 0; ncand = 0
+    anyok = .false.
+    do k = 60, 360
+      call check_time(33388.0, k, tref, itref, tcand, itcand, ncand, ok, tgood)
+      if (ok) anyok = .true.
+    end do
+    call report('test_check_time_frozen_never_adopted', &
+                (.not. anyok) .and. abs(tgood - 34360.0) < 0.01, failures)
+  end subroutine
+
+  ! PC clock stepped 120 s: 5 consecutive self-consistent GPS times re-sync
+  subroutine test_check_time_genuine_step_adopted(failures)
+    integer, intent(inout) :: failures
+    real :: tref, tcand, tgood
+    integer :: itref, itcand, ncand, k
+    logical :: ok, early
+    tref = 50000.0; itref = 0; tcand = 0.0; itcand = 0; ncand = 0
+    early = .false.
+    do k = 1, 4
+      call check_time(50000.0 + 120.0 + real(k), k, tref, itref, tcand, itcand, &
+                      ncand, ok, tgood)
+      if (ok) early = .true.
+    end do
+    call check_time(50125.0, 5, tref, itref, tcand, itcand, ncand, ok, tgood)
+    call report('test_check_time_genuine_step_adopted', &
+                (.not. early) .and. ok .and. tref == 50125.0 .and. tgood == 50125.0, failures)
+  end subroutine
+
+  ! ---------------------------------------------------------------------------
+  ! check_fix(clat, clon, itime, xmaxspd, alat, alon, ita, clatc, clonc, itc,
+  !           nc, ok)
+  !   clat,clon - incoming fix (decimal deg, lon 0-360 E); itime - PC seconds
+  !   alat,alon,ita - last accepted fix (ita<0: none)
+  !   clatc,clonc,itc,nc - run of self-consistent rejected fixes (re-sync)
+  !   ok - fix is in range and within xmaxspd*elapsed + 0.1 nm of the last one
+  ! ---------------------------------------------------------------------------
+
+  subroutine test_check_fix_no_reference(failures)
+    integer, intent(inout) :: failures
+    real :: alat, alon, clatc, clonc
+    integer :: ita, itc, nc
+    logical :: ok
+    alat = 0.0; alon = 0.0; ita = -1; clatc = 0.0; clonc = 0.0; itc = 0; nc = 0
+    call check_fix(33.63, 241.83, 100, 20.0, alat, alon, ita, clatc, clonc, itc, nc, ok)
+    call report('test_check_fix_no_reference', &
+                ok .and. alat == 33.63 .and. alon == 241.83 .and. ita == 100, failures)
+  end subroutine
+
+  ! 1 s at 10 kt north
+  subroutine test_check_fix_normal(failures)
+    integer, intent(inout) :: failures
+    real :: alat, alon, clatc, clonc
+    integer :: ita, itc, nc
+    logical :: ok
+    alat = 33.63; alon = 241.83; ita = 100; clatc = 0.0; clonc = 0.0; itc = 0; nc = 0
+    call check_fix(33.63 + 10.0/3600.0/60.0, 241.83, 101, 20.0, alat, alon, ita, &
+                   clatc, clonc, itc, nc, ok)
+    call report('test_check_fix_normal', ok .and. ita == 101, failures)
+  end subroutine
+
+  ! Seas sends S for any latitude cardinal that is not exactly "N", so a
+  ! partial string arrives as 33.63 S
+  subroutine test_check_fix_hemisphere_flip(failures)
+    integer, intent(inout) :: failures
+    real :: alat, alon, clatc, clonc
+    integer :: ita, itc, nc
+    logical :: ok
+    alat = 33.63; alon = 241.83; ita = 100; clatc = 0.0; clonc = 0.0; itc = 0; nc = 0
+    call check_fix(-33.63, 241.83, 101, 20.0, alat, alon, ita, clatc, clonc, itc, nc, ok)
+    call report('test_check_fix_hemisphere_flip', &
+                (.not. ok) .and. alat == 33.63 .and. ita == 100, failures)
+  end subroutine
+
+  ! Empty fields parse to 0,0 (lon 0 or 360): never a fix, even with no reference
+  subroutine test_check_fix_null_island(failures)
+    integer, intent(inout) :: failures
+    real :: alat, alon, clatc, clonc
+    integer :: ita, itc, nc
+    logical :: ok1, ok2
+    alat = 0.0; alon = 0.0; ita = -1; clatc = 0.0; clonc = 0.0; itc = 0; nc = 0
+    call check_fix(0.0, 0.0, 100, 20.0, alat, alon, ita, clatc, clonc, itc, nc, ok1)
+    call check_fix(0.0, 360.0, 101, 20.0, alat, alon, ita, clatc, clonc, itc, nc, ok2)
+    call report('test_check_fix_null_island', &
+                (.not. ok1) .and. (.not. ok2) .and. ita == -1, failures)
+  end subroutine
+
+  ! Latitude field empty (0) but longitude parsed
+  subroutine test_check_fix_zero_lat(failures)
+    integer, intent(inout) :: failures
+    real :: alat, alon, clatc, clonc
+    integer :: ita, itc, nc
+    logical :: ok
+    alat = 33.63; alon = 241.83; ita = 100; clatc = 0.0; clonc = 0.0; itc = 0; nc = 0
+    call check_fix(0.0, 241.83, 101, 20.0, alat, alon, ita, clatc, clonc, itc, nc, ok)
+    call report('test_check_fix_zero_lat', .not. ok, failures)
+  end subroutine
+
+  ! One bad fix between good ones: bad rejected, the next good one accepted
+  subroutine test_check_fix_isolated_jump(failures)
+    integer, intent(inout) :: failures
+    real :: alat, alon, clatc, clonc
+    integer :: ita, itc, nc
+    logical :: ok1, ok2
+    alat = 33.63; alon = 241.83; ita = 100; clatc = 0.0; clonc = 0.0; itc = 0; nc = 0
+    call check_fix(33.80, 241.83, 101, 20.0, alat, alon, ita, clatc, clonc, itc, nc, ok1)
+    call check_fix(33.63 + 2.0*10.0/3600.0/60.0, 241.83, 102, 20.0, alat, alon, ita, &
+                   clatc, clonc, itc, nc, ok2)
+    call report('test_check_fix_isolated_jump', (.not. ok1) .and. ok2 .and. ita == 102, &
+                failures)
+  end subroutine
+
+  ! Reference itself was bad: 5 consecutive consistent real fixes re-sync
+  subroutine test_check_fix_bad_reference_recovers(failures)
+    integer, intent(inout) :: failures
+    real :: alat, alon, clatc, clonc
+    integer :: ita, itc, nc, k
+    logical :: ok, early
+    alat = -33.63; alon = 241.83; ita = 100; clatc = 0.0; clonc = 0.0; itc = 0; nc = 0
+    early = .false.
+    do k = 1, 4
+      call check_fix(33.63 + real(k)*10.0/3600.0/60.0, 241.83, 100 + k, 20.0, &
+                     alat, alon, ita, clatc, clonc, itc, nc, ok)
+      if (ok) early = .true.
+    end do
+    call check_fix(33.63 + 5.0*10.0/3600.0/60.0, 241.83, 105, 20.0, &
+                   alat, alon, ita, clatc, clonc, itc, nc, ok)
+    call report('test_check_fix_bad_reference_recovers', &
+                (.not. early) .and. ok .and. alat > 0.0 .and. ita == 105, failures)
+  end subroutine
+
+  ! GPS lost 20 min, ship made 3 nm at 9 kt: accepted
+  subroutine test_check_fix_after_outage(failures)
+    integer, intent(inout) :: failures
+    real :: alat, alon, clatc, clonc
+    integer :: ita, itc, nc
+    logical :: ok
+    alat = 33.63; alon = 241.83; ita = 100; clatc = 0.0; clonc = 0.0; itc = 0; nc = 0
+    call check_fix(33.63 + 3.0/60.0, 241.83, 1300, 20.0, alat, alon, ita, &
+                   clatc, clonc, itc, nc, ok)
+    call report('test_check_fix_after_outage', ok, failures)
   end subroutine
 
   ! ---------------------------------------------------------------------------
