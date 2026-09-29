@@ -22,6 +22,14 @@ program test_sio_time
   call test_drops_too_close_no_history(failures)
   call test_drops_too_close_real_sweep(failures)
   call test_yrdy_before_epoch(failures)
+  call test_pc_new_minute_same_minute(failures)
+  call test_pc_new_minute_next_minute(failures)
+  call test_pc_new_minute_same_second(failures)
+  call test_pc_new_minute_call_gap(failures)
+  call test_pc_new_minute_midnight(failures)
+  call test_pc_new_minute_clock_back_across(failures)
+  call test_pc_new_minute_clock_back_within(failures)
+  call test_pc_new_minute_once_per_minute(failures)
   call test_compare_first_later(failures)
   call test_compare_first_earlier(failures)
   call test_compare_equal(failures)
@@ -426,6 +434,81 @@ contains
       failures = failures + 1
     else
       print *, 'PASS test_getdat_valid_range: iyr=', iyr, ' imo=', imo, ' iday=', iday
+    end if
+  end subroutine
+
+  ! ---------------------------------------------------------------------------
+  ! pc_new_minute(tprev, tnow): PC clock (seconds of day) moved forward into a
+  ! new minute. Replaces the GPS-csec test (csec<10 after >=50), which fired
+  ! again whenever a stale or garbled sentence made csec jump back.
+  ! ---------------------------------------------------------------------------
+
+  subroutine check_minute(name, tprev, tnow, expected, failures)
+    character(len=*), intent(in) :: name
+    real,    intent(in)    :: tprev, tnow
+    logical, intent(in)    :: expected
+    integer, intent(inout) :: failures
+    if (pc_new_minute(tprev, tnow) .neqv. expected) then
+      print *, 'FAIL ', name, ': tprev=', tprev, ' tnow=', tnow, ' expected ', expected
+      failures = failures + 1
+    else
+      print *, 'PASS ', name
+    end if
+  end subroutine
+
+  subroutine test_pc_new_minute_same_minute(failures)
+    integer, intent(inout) :: failures
+    call check_minute('test_pc_new_minute_same_minute', 43200.0, 43259.0, .false., failures)
+  end subroutine
+
+  subroutine test_pc_new_minute_next_minute(failures)
+    integer, intent(inout) :: failures
+    call check_minute('test_pc_new_minute_next_minute', 43259.0, 43260.0, .true., failures)
+  end subroutine
+
+  subroutine test_pc_new_minute_same_second(failures)
+    ! Seas can call twice within one PC second
+    integer, intent(inout) :: failures
+    call check_minute('test_pc_new_minute_same_second', 43260.0, 43260.0, .false., failures)
+  end subroutine
+
+  subroutine test_pc_new_minute_call_gap(failures)
+    ! Calls stalled for 5 minutes: one boundary, not five
+    integer, intent(inout) :: failures
+    call check_minute('test_pc_new_minute_call_gap', 43230.0, 43530.0, .true., failures)
+  end subroutine
+
+  subroutine test_pc_new_minute_midnight(failures)
+    integer, intent(inout) :: failures
+    call check_minute('test_pc_new_minute_midnight', 86399.0, 0.0, .true., failures)
+  end subroutine
+
+  subroutine test_pc_new_minute_clock_back_across(failures)
+    ! PC clock set back 10 s across a minute (time sync): the minute it
+    ! returns to was already closed, so no second boundary
+    integer, intent(inout) :: failures
+    call check_minute('test_pc_new_minute_clock_back_across', 43265.0, 43255.0, .false., failures)
+  end subroutine
+
+  subroutine test_pc_new_minute_clock_back_within(failures)
+    integer, intent(inout) :: failures
+    call check_minute('test_pc_new_minute_clock_back_within', 43255.0, 43250.0, .false., failures)
+  end subroutine
+
+  subroutine test_pc_new_minute_once_per_minute(failures)
+    ! Calls every second for 10 minutes -> exactly 10 boundaries, whatever
+    ! the GPS seconds were doing
+    integer, intent(inout) :: failures
+    integer :: i, n
+    n = 0
+    do i = 1, 600
+      if (pc_new_minute(real(43200 + i - 1), real(43200 + i))) n = n + 1
+    end do
+    if (n /= 10) then
+      print *, 'FAIL test_pc_new_minute_once_per_minute: n=', n, ' expected 10'
+      failures = failures + 1
+    else
+      print *, 'PASS test_pc_new_minute_once_per_minute'
     end if
   end subroutine
 

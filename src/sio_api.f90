@@ -998,7 +998,7 @@
     use sio_nav,     only: ave, newpos, xbteta, interp, planinfo, chkall, chkbuf, chkwrite, &
                            dr_elapsed, past_station, ave_consistent, check_time, check_fix
     use sio_time,    only: gettim, getdat, dayofw, gettmtg, timetohms, yrdy, compare, findtime, &
-                           drops_too_close
+                           drops_too_close, pc_new_minute
     use sio_convert, only: ch2real, real2ch, int2ch, dec2deg, deg2dec, findspace, lev
     implicit none
     integer, parameter :: nerr = 50
@@ -1330,16 +1330,19 @@
        end if
     end if
 
-    ! ---- Label 750: GPS second comparison ----
+    ! ---- Label 750: minute boundary ----
+    ! Fix 5: taken from the PC clock, so it fires once a minute. The old GPS-
+    ! second test (csec < 10 after >= 50) re-fired whenever a stale or garbled
+    ! sentence made csec jump back: repeated averages, duplicate .nav lines.
     gpssec1 = csec
     iminboundary = 0
     iwrotegps = 0
-    if (gpssec1 < 10.0 .and. gpssec >= 50.0) then
+    if (pc_new_minute(dtime1, dtime)) then
        iminboundary = 1
        if (igps == 1) then
           inav = 1
           if (iw == 1 .and. ierrlev == 6) &
-               write(ifile, *) '5? to 1?  inav=', inav, ' ibuf=', ibuf
+               write(ifile, *) 'new PC minute  inav=', inav, ' ibuf=', ibuf
        end if
     end if
 

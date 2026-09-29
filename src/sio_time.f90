@@ -3,7 +3,7 @@ module sio_time
   implicit none
   private
   public :: compare, dayofw, gettmtg, findtime, yrdy, timetohms, gettim, getdat
-  public :: drops_too_close
+  public :: drops_too_close, pc_new_minute
 
 contains
 
@@ -172,6 +172,20 @@ contains
     if (yrday1 <= 0.0) return
     drops_too_close = (yrday2 - yrday1) * 1440.0 < window_min + margin_min
   end function drops_too_close
+
+  ! True when the PC clock has moved forward into a new minute: drives the
+  ! once-a-minute GPS average and DED write in sioloop. GPS seconds cannot:
+  ! a stale or garbled sentence makes csec jump back and re-fire it.
+  ! tprev, tnow — PC seconds of day from consecutive sioloop calls.
+  ! Forward = wrapped step under 12 h, so midnight counts and a clock set
+  ! back (time sync, DST) does not re-open a minute already closed.
+  logical function pc_new_minute(tprev, tnow)
+    real, intent(in) :: tprev, tnow
+    real :: step
+    step = modulo(tnow - tprev, 86400.0)
+    pc_new_minute = step > 0.0 .and. step < 43200.0 .and. &
+                    int(tnow / 60.0) /= int(tprev / 60.0)
+  end function pc_new_minute
 
   ! Convert timetag (seconds in GPS week) to hours/minutes/seconds. siosub.for:2172.
   ! timetag — input seconds (may span multiple days)
