@@ -995,8 +995,10 @@
        drlat, drlon, iSIOSpeedAveMin)
     use sio_core
     use sio_io,      only: rdcntrl, getdir, chknav, getfilen, decodeplan, navopen
-    use sio_nav,     only: ave, newpos, xbteta, interp, planinfo, chkall, chkbuf, chkwrite
-    use sio_time,    only: gettim, getdat, dayofw, gettmtg, timetohms, yrdy, compare, findtime
+    use sio_nav,     only: ave, newpos, xbteta, interp, planinfo, chkall, chkbuf, chkwrite, &
+                           dr_elapsed, past_station, ave_consistent
+    use sio_time,    only: gettim, getdat, dayofw, gettmtg, timetohms, yrdy, compare, findtime, &
+                           drops_too_close
     use sio_convert, only: ch2real, real2ch, int2ch, dec2deg, deg2dec, findspace, lev
     implicit none
     integer, parameter :: nerr = 50
@@ -1029,9 +1031,15 @@
     real    :: dtime1, gpssec1, check
     real    :: deadsec, relodsec, dxlat, dxlon, xlon
     real    :: dist, dxlatnm, dxlonnm
-    real    :: vlat1, vlon1, vlat_prev, vlon_prev, yrday2
+    real    :: vlat1, vlon1, vlat_prev, vlon_prev, timeave_prev, yrday2
     real    :: deg2rad
     save       stoptime
+    ! PC-clock itime of the last accepted GPS average; checks DR elapsed time
+    integer, save :: itimeave = -1
+    ! Last GPS average agreed with dead reckoning from the one before it;
+    ! a drop is only armed from a trusted position (fix 3)
+    logical, save :: postrust = .true.
+    logical :: postrusted
 
     integer :: iw, ifile, ios, len_adir
     integer :: igderr(3)
@@ -1039,7 +1047,7 @@
     integer :: iminboundary, iwrotegps
     integer :: i1, icyr, imo, iday, idhr, idmin, idsec, jchange
     integer :: jpos, len, iiyergps, iiyerave, iweekday
-    integer :: nobuf, icsec, idchange, idirck, ix, i
+    integer :: nobuf, icsec, idchange, ix, i
     integer :: ierrwrite
     integer :: ivlatd, ivlond
     integer :: icmon1, icyear1, ik, ij, ib, ie
@@ -1049,7 +1057,7 @@
     character(len=80) :: asio, anavtrk, adir, afilen
     character(len=2) :: adosday, adosmon, agpsday
     character(len=4) :: adosyear
-    character(len=1) :: aplandir, avlath, avlonh, aclath, aclonh
+    character(len=1) :: avlath, avlonh, aclath, aclonh
     integer(2) :: j1, j2, j3, j4
 
     ! ---- Initialization ----
@@ -1113,6 +1121,8 @@
        gpssec = idsec2
        idsec2 = 0
        stoptime = 9.9e9
+       itimeave = -1
+       postrust = .true.
     end if
 
     vlat1 = vlat
@@ -1196,16 +1206,6 @@
     if (icyear > 2000) iiyergps = icyear - 2000
     if (iyerave > 2000) iiyerave = iyerave - 2000
 
-    ! ---- Translate iplandir to aplandir ----
-    if (iplandir == 1) then
-       aplandir = 'N'
-    else if (iplandir == 2) then
-       aplandir = 'E'
-    else if (iplandir == 3) then
-       aplandir = 'S'
-    else if (iplandir == 4) then
-       aplandir = 'W'
-    end if
     aclonh = 'E'
     if (iclonh == 4) aclonh = 'W'
     aclath = 'N'
@@ -1314,6 +1314,7 @@
           else
              vlat_prev = vlat
              vlon_prev = vlon
+             timeave_prev = timeave
 
              call ave(ibuf, clatbuf, clonbuf, ctagbuf, avlath, avlonh, &
                   s, d, timeave, vlat, vlon, ierror, iderr, iSIOSpeedAveMin, &
@@ -1324,6 +1325,11 @@
                 ! Skip to label 21
              else
                 iaveflg = 1
+                itimeave = itime
+                postrust = ave_consistent(vlat_prev, vlon_prev, timeave_prev, &
+                     speed, dir, vlat, vlon, timeave)
+                if (.not. postrust .and. iw == 1) write(ifile, *) &
+                     'GPS average disagrees with DR: drops held until confirmed'
                 idayave = icday
                 imonave = icmon
                 iyerave = icyear
@@ -1335,6 +1341,7 @@
                          vlat = vlat_prev
                          vlon = vlon_prev
                          iaveflg = 0
+                         postrust = .false.
                          ibuf = 0
                          ! Skip to label 21
                       else
@@ -1409,9 +1416,9 @@
     gpssec = gpssec1
 
     ! Dead reckoning
-    if (iaveflg /= 2) then
-       if (iaveflg == 1) then
-          if (ispd /= 0) then
+    if (iaveflg /= 2) then ! iaveflg=2 means no DR, just use last GPS position
+       if (iaveflg == 1) then ! iaveflg=1 means use averaged GPS position
+          if (ispd /= 0) then ! ispd = 0 means ship not moving
              ! Calculate from latest averaged position
              if (ispec(1) == 1) then
                 ! lat-based plan
@@ -1495,6 +1502,7 @@
                 end if
                 change = x + gpstime
              end if
+             change = dr_elapsed(change, itime, itimeave, iw, ifile)
 
              vlat1 = vlat
              vlon1 = vlon
@@ -1522,6 +1530,7 @@
                 x = 86400.0 - x
                 change = x + gpstime
              end if
+             change = dr_elapsed(change, itime, itimeave, iw, ifile)
              x = change
              call newpos(speed, x, dir, vlat, vlat1, vlon1, aclath, &
                   ierrlev, ifile)
@@ -1537,34 +1546,19 @@
        end if
 
        ! ---- Check if past xbt location ----
-       dxlat = vlat1 - xlat
-       dxlon = vlon1 - xlon
-       if (abs(dxlon) > 300.0) then
-          if (dxlon > 300.0) then
-             dxlon = (vlon1 - xlon) - 360.0
-          else
-             dxlon = 360.0 + (vlon1 - xlon)
-          end if
-       end if
-
-       ! Ship direction check
-       idirck = 1
-       if (ispec(1) == 0) then
-          if (dir >= 0.0 .and. dir <= 180.0 .and. iplandir == 4) idirck = 0
-          if (dir <= 360.0 .and. dir >= 180.0 .and. iplandir == 2) idirck = 0
-       else if (ispec(1) == 1) then
-          if (dir >= 270.0 .and. dir <= 90.0 .and. iplandir == 3) idirck = 0
-          if (dir <= 270.0 .and. dir >= 90.0 .and. iplandir == 1) idirck = 0
-       end if
-
-       if (idirck == 1 .and. speed <= xmaxspd) then
-          if ((aplandir == 'N' .and. dxlat >= 0.0) .or. &
-              (aplandir == 'S' .and. dxlat <= 0.0) .or. &
-              (aplandir == 'W' .and. dxlon <= 0.0 .and. abs(dxlon) <= 20.0) .or. &
-              (aplandir == 'E' .and. dxlon >= 0.0 .and. abs(dxlon) <= 20.0)) then
-             stoptime = itime + runsec
-             idsec2 = 1
-          end if
+       ! Fix 3: only arm the drop from a trusted position: the latest GPS
+       ! average agreed with dead reckoning from the previous one (a jump
+       ! after a GPS switch or dropout is held until the next average
+       ! confirms it). igps=2 (no GPS at all) runs on dead reckoning alone.
+       postrusted = postrust .or. igps == 2
+       if (past_station(ispec(1), iplandir, dir, speed, xmaxspd, &
+                        vlat1, vlon1, xlat, xlon, postrusted)) then
+          stoptime = itime + runsec
+          idsec2 = 1
+       else if (.not. postrusted .and. iw == 1) then
+          if (past_station(ispec(1), iplandir, dir, speed, xmaxspd, &
+                           vlat1, vlon1, xlat, xlon, .true.)) &
+               write(ifile, *) 'past station but position unconfirmed: drop held'
        end if
 
        ! GPS status
@@ -1638,11 +1632,8 @@
     ! ---- Label 90: check stoptime for drop ----
     if (idsec2 == 1 .and. itime >= stoptime) then
        call yrdy(iiyergps, icmon, icday, idhr, idmin, idsec, yrday2)
-       if (yrday1 > 0.0) then
-          if ((yrday2 - yrday1) < 0.0069444) then
-             ierror(30) = 1
-          end if
-       end if
+       ! 3 drops in 10 min -> Seas alarms and stops the autolauncher
+       if (drops_too_close(yrday1, yrday2)) ierror(30) = 1
        ierror(1) = 1
     end if
 

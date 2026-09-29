@@ -6,6 +6,7 @@ module sio_nav
   implicit none
   private
   public :: ave, newpos, xbteta, interp, planinfo, chkall, chkbuf, chkwrite
+  public :: dr_elapsed, past_station, ave_consistent
 
   integer, parameter :: nerr = 50
 
@@ -286,6 +287,9 @@ contains
     aclath = 'N'
     if (vlat < 0.0) aclath = 'S'
 
+    ! A stale or garbled GPS time gives change <= 0; never dead-reckon on it.
+    if (change <= 0.0) return
+
     ! Convert knots → nm/sec
     speedsec = speed / 3600.0
     ! Distance travelled in 'change' seconds
@@ -306,19 +310,10 @@ contains
       dxlon1 = dxlonnm1 / (60.0 * x)
     end if
 
-    ! Update latitude
-    if (dir > 270.0 .or. dir < 90.0) then
-      vlat1 = vlat1 + abs(dxlat1)
-    else
-      vlat1 = vlat1 - abs(dxlat1)
-    end if
-
-    ! Update longitude (heading E adds, heading W subtracts)
-    if (dir >= 0.0 .and. dir < 180.0) then
-      vlon1 = vlon1 + abs(dxlon1)
-    else
-      vlon1 = vlon1 - abs(dxlon1)
-    end if
+    ! Signed components carry the direction (cos/sin of dir); the old
+    ! quadrant-plus-abs() form moved the ship forward even for negative time.
+    vlat1 = vlat1 + dxlat1
+    vlon1 = vlon1 + dxlon1
 
     ! Wrap longitude to [0, 360)
     if (vlon1 > 360.0) vlon1 = vlon1 - 360.0
@@ -327,6 +322,116 @@ contains
     if (ierrlev >= 6) write(ifile,*) 'out newpos,vlat1,vlon1', vlat1, vlon1
 
   end subroutine newpos
+
+  ! Sanity-check the GPS-derived dead-reckoning elapsed time against the PC
+  ! clock. Stale buffered sentences and garbled time fields (9/8/26) must not
+  ! move the DR position; when GPS and PC disagree, trust the PC clock.
+  ! gps_change - DR seconds from GPS time (gpstime - timeave)
+  ! itime      - PC-clock seconds counter now (sioloop's itime)
+  ! itimeave   - itime at the last accepted GPS average (<0, or > itime after
+  !              siobegin reset the counter: unknown)
+  real function dr_elapsed(gps_change, itime, itimeave, iw, ifile)
+    real,    intent(in) :: gps_change
+    integer, intent(in) :: itime, itimeave, iw, ifile
+    real, parameter :: tol = 60.0    ! seconds of GPS/PC disagreement allowed
+    real :: pc_change
+
+    dr_elapsed = gps_change
+    if (itimeave >= 0 .and. itime >= itimeave) then
+      pc_change = real(itime - itimeave)
+      if (gps_change < 0.0 .or. abs(gps_change - pc_change) > tol) then
+        if (iw == 1) write(ifile,*) 'DR time rejected: gps=', gps_change, &
+                                    ' pc=', pc_change
+        dr_elapsed = pc_change
+      end if
+    else if (gps_change < 0.0) then
+      dr_elapsed = 0.0               ! no PC reference yet: never go backwards
+    end if
+  end function dr_elapsed
+
+  ! Has the (dead-reckoned) ship position passed the XBT drop station?
+  ! Geometry extracted unchanged from sioloop; sioloop arms the drop
+  ! (stoptime/idsec2) when this is true.
+  ! ispec1   - 1 lat-based plan, 0 lon-based plan
+  ! iplandir - plan direction N=1, E=2, S=3, W=4 (anything else: never past)
+  ! dir,speed,xmaxspd - ship course/speed and max allowed speed
+  ! vlat1,vlon1 - ship position (0-360 E); xlat,xlon - station
+  ! trusted  - position source is trusted (fix 3); false: never past
+  logical function past_station(ispec1, iplandir, dir, speed, xmaxspd, &
+                                vlat1, vlon1, xlat, xlon, trusted)
+    integer, intent(in) :: ispec1, iplandir
+    real,    intent(in) :: dir, speed, xmaxspd, vlat1, vlon1, xlat, xlon
+    logical, intent(in) :: trusted
+    real    :: dxlat, dxlon
+    integer :: idirck
+
+    past_station = .false.
+    if (.not. trusted) return
+    if (iplandir < 1 .or. iplandir > 4) return
+
+    dxlat = vlat1 - xlat
+    dxlon = vlon1 - xlon
+    if (abs(dxlon) > 300.0) then
+      if (dxlon > 300.0) then
+        dxlon = (vlon1 - xlon) - 360.0
+      else
+        dxlon = 360.0 + (vlon1 - xlon)
+      end if
+    end if
+
+    ! Ship direction check (ship circling): only trigger when the ship is
+    ! heading the same way as the plan.
+    idirck = 1
+    if (ispec1 == 0) then
+      if (dir >= 0.0 .and. dir <= 180.0 .and. iplandir == 4) idirck = 0
+      if (dir <= 360.0 .and. dir >= 180.0 .and. iplandir == 2) idirck = 0
+    else if (ispec1 == 1) then
+      ! NOTE: can never be true (dir >= 270 and <= 90); kept as in sio.for
+      if (dir >= 270.0 .and. dir <= 90.0 .and. iplandir == 3) idirck = 0
+      if (dir <= 270.0 .and. dir >= 90.0 .and. iplandir == 1) idirck = 0
+    end if
+    if (idirck /= 1 .or. speed > xmaxspd) return
+
+    select case (iplandir)
+    case (1)
+      past_station = dxlat >= 0.0
+    case (2)
+      past_station = dxlon >= 0.0 .and. abs(dxlon) <= 20.0
+    case (3)
+      past_station = dxlat <= 0.0
+    case (4)
+      past_station = dxlon <= 0.0 .and. abs(dxlon) <= 20.0
+    end select
+  end function past_station
+
+  ! Is a new GPS average consistent with dead reckoning from the previous
+  ! one?  True when it lies within 0.5 nm of the position predicted from the
+  ! previous average using the previous speed and course.  A jump (stale
+  ! Garmin sentences, mashed strings, a bad fit after a dropout) fails, so
+  ! sioloop will not arm a drop until a following average agrees with it.
+  ! vlat_prev,vlon_prev,timeave_prev - previous average (lon 0-360 E, sec)
+  ! speed,dir - speed (kt) and course used to dead reckon from it
+  ! vlat_new,vlon_new,timeave_new    - new average
+  logical function ave_consistent(vlat_prev, vlon_prev, timeave_prev, &
+                                  speed, dir, vlat_new, vlon_new, timeave_new)
+    real, intent(in) :: vlat_prev, vlon_prev, timeave_prev, speed, dir
+    real, intent(in) :: vlat_new, vlon_new, timeave_new
+    real, parameter :: tol_nm  = 0.5
+    real, parameter :: deg2rad = 3.141592654 / 180.0
+    real :: plat, plon, dlon, dn_nm, de_nm
+    character(len=1) :: ahem
+
+    plat = vlat_prev
+    plon = vlon_prev
+    call newpos(max(speed, 0.0), timeave_new - timeave_prev, dir, vlat_prev, &
+                plat, plon, ahem, 0, 0)
+    dlon = vlon_new - plon
+    if (dlon >  180.0) dlon = dlon - 360.0
+    if (dlon < -180.0) dlon = dlon + 360.0
+    dn_nm = (vlat_new - plat) * 60.0
+    de_nm = dlon * 60.0 * cos(vlat_new * deg2rad)
+    ave_consistent = sqrt(dn_nm*dn_nm + de_nm*de_nm) <= tol_nm
+  end function ave_consistent
 
   ! Compute ETA (hours) to next drop positions. Ported from siosub.for:2233.
   ! Unused original params (ctime, xlat, xlon, ixhr, ixmin, ixsec) omitted.
