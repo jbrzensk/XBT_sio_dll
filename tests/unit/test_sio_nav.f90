@@ -24,6 +24,38 @@ program test_sio_nav
   call test_newpos_south(failures)
   call test_newpos_lon_wrap(failures)
   call test_newpos_zero_speed(failures)
+  call test_newpos_northwest_real(failures)
+  call test_newpos_negative_change(failures)
+
+  ! dr_elapsed
+  call test_dr_elapsed_garbled_hour_behind(failures)
+  call test_dr_elapsed_jump_ahead(failures)
+  call test_dr_elapsed_outage_agrees(failures)
+  call test_dr_elapsed_no_ref_negative(failures)
+  call test_dr_elapsed_no_ref_positive(failures)
+  call test_dr_elapsed_counter_reset(failures)
+
+  ! past_station (geometry extracted from sioloop + trust gate)
+  call test_past_station_north(failures)
+  call test_past_station_south(failures)
+  call test_past_station_east(failures)
+  call test_past_station_east_too_far(failures)
+  call test_past_station_west(failures)
+  call test_past_station_west_across_zero(failures)
+  call test_past_station_wrong_heading_lon(failures)
+  call test_past_station_wrong_heading_lat(failures)
+  call test_past_station_over_max_speed(failures)
+  call test_past_station_bad_plandir(failures)
+  call test_past_station_untrusted(failures)
+
+  ! ave_consistent (new average agrees with dead reckoning from the last one)
+  call test_ave_consistent_on_track(failures)
+  call test_ave_consistent_small_offset(failures)
+  call test_ave_consistent_jump_2nm(failures)
+  call test_ave_consistent_jump_0908(failures)
+  call test_ave_consistent_lon_wrap(failures)
+  call test_ave_consistent_stuck_same(failures)
+  call test_ave_consistent_stuck_moved(failures)
 
   ! interp
   call test_interp_midpoint(failures)
@@ -276,6 +308,284 @@ contains
     else
       print *, 'PASS test_newpos_zero_speed'
     end if
+  end subroutine
+
+  ! 9/8/26 case, forward in time: 10.62 kt on 351.8 for 3570 s from
+  ! 33 37.8225N 118 10.0974W moves +10.43' lat and 1.80' further west.
+  subroutine test_newpos_northwest_real(failures)
+    integer, intent(inout) :: failures
+    real :: vlat0, vlon0, vlat1, vlon1
+    character(len=1) :: aclath
+    vlat0 = 33.0 + 37.8225/60.0
+    vlon0 = 360.0 - (118.0 + 10.0974/60.0)
+    vlat1 = vlat0; vlon1 = vlon0
+    call newpos(10.62, 3570.0, 351.8, vlat0, vlat1, vlon1, aclath, 0, 0)
+    if (abs((vlat1 - vlat0)*60.0 - 10.43) > 0.05 .or. &
+        abs((vlon0 - vlon1)*60.0 - 1.80) > 0.05) then
+      print *, 'FAIL test_newpos_northwest_real: dlat min=', (vlat1-vlat0)*60.0, &
+               ' dlon min west=', (vlon0-vlon1)*60.0
+      failures = failures + 1
+    else
+      print *, 'PASS test_newpos_northwest_real'
+    end if
+  end subroutine
+
+  ! 9/8/26 bug: a garbled GPS time an hour behind gave change = -3570 s and
+  ! newpos moved the ship 10.4 nm FORWARD. Negative elapsed time must never
+  ! move the dead-reckoned position.
+  subroutine test_newpos_negative_change(failures)
+    integer, intent(inout) :: failures
+    real :: vlat0, vlon0, vlat1, vlon1
+    character(len=1) :: aclath
+    vlat0 = 33.0 + 37.8225/60.0
+    vlon0 = 360.0 - (118.0 + 10.0974/60.0)
+    vlat1 = vlat0; vlon1 = vlon0
+    call newpos(10.62, -3570.0, 351.8, vlat0, vlat1, vlon1, aclath, 0, 0)
+    if (abs(vlat1 - vlat0) > 1.0e-5 .or. abs(vlon1 - vlon0) > 1.0e-5) then
+      print *, 'FAIL test_newpos_negative_change: moved dlat min=', (vlat1-vlat0)*60.0, &
+               ' dlon min=', (vlon1-vlon0)*60.0
+      failures = failures + 1
+    else
+      print *, 'PASS test_newpos_negative_change'
+    end if
+  end subroutine
+
+  ! ---------------------------------------------------------------------------
+  ! dr_elapsed(gps_change, itime, itimeave, iw, ifile)
+  !   gps_change - DR seconds from GPS time (gpstime - timeave)
+  !   itime      - PC-clock seconds counter now
+  !   itimeave   - itime at the last accepted average (<0: unknown)
+  ! ---------------------------------------------------------------------------
+
+  subroutine check_elapsed(name, gps, itime, itimeave, expected, failures)
+    character(len=*), intent(in) :: name
+    real,    intent(in)    :: gps, expected
+    integer, intent(in)    :: itime, itimeave
+    integer, intent(inout) :: failures
+    real :: got
+    got = dr_elapsed(gps, itime, itimeave, 0, 0)
+    if (abs(got - expected) > 0.001) then
+      print *, 'FAIL ', name, ': got=', got, ' expected=', expected
+      failures = failures + 1
+    else
+      print *, 'PASS ', name
+    end if
+  end subroutine
+
+  ! 9/8/26 10:40:00 garbled time: GPS says -3570 s, PC clock says 30 s
+  subroutine test_dr_elapsed_garbled_hour_behind(failures)
+    integer, intent(inout) :: failures
+    call check_elapsed('test_dr_elapsed_garbled_hour_behind', -3570.0, 1000, 970, 30.0, failures)
+  end subroutine
+
+  ! Garbled time ahead of truth: GPS says 900 s, PC clock says 30 s
+  subroutine test_dr_elapsed_jump_ahead(failures)
+    integer, intent(inout) :: failures
+    call check_elapsed('test_dr_elapsed_jump_ahead', 900.0, 1000, 970, 30.0, failures)
+  end subroutine
+
+  ! Genuine 20 min outage: GPS and PC agree within tolerance -> keep GPS value
+  subroutine test_dr_elapsed_outage_agrees(failures)
+    integer, intent(inout) :: failures
+    call check_elapsed('test_dr_elapsed_outage_agrees', 1200.0, 2195, 1000, 1200.0, failures)
+  end subroutine
+
+  ! No PC reference yet (first calls after siobegin): never go backwards
+  subroutine test_dr_elapsed_no_ref_negative(failures)
+    integer, intent(inout) :: failures
+    call check_elapsed('test_dr_elapsed_no_ref_negative', -50.0, 1000, -1, 0.0, failures)
+  end subroutine
+
+  subroutine test_dr_elapsed_no_ref_positive(failures)
+    integer, intent(inout) :: failures
+    call check_elapsed('test_dr_elapsed_no_ref_positive', 600.0, 1000, -1, 600.0, failures)
+  end subroutine
+
+  ! siobegin resets itime to 0; a leftover itimeave larger than itime is not
+  ! a valid reference and must not force a negative (frozen) DR time.
+  subroutine test_dr_elapsed_counter_reset(failures)
+    integer, intent(inout) :: failures
+    call check_elapsed('test_dr_elapsed_counter_reset', 600.0, 10, 970, 600.0, failures)
+  end subroutine
+
+  ! ---------------------------------------------------------------------------
+  ! past_station(ispec1, iplandir, dir, speed, xmaxspd, vlat1, vlon1,
+  !              xlat, xlon, trusted)
+  !   ispec1   - 1 lat-based plan, 0 lon-based plan
+  !   iplandir - plan direction N=1, E=2, S=3, W=4
+  ! ---------------------------------------------------------------------------
+
+  subroutine check_past(name, ispec1, iplandir, dir, speed, vlat1, vlon1, &
+                        xlat, xlon, trusted, expected, failures)
+    character(len=*), intent(in) :: name
+    integer, intent(in)    :: ispec1, iplandir
+    real,    intent(in)    :: dir, speed, vlat1, vlon1, xlat, xlon
+    logical, intent(in)    :: trusted, expected
+    integer, intent(inout) :: failures
+    logical :: got
+    got = past_station(ispec1, iplandir, dir, speed, 20.0, vlat1, vlon1, &
+                       xlat, xlon, trusted)
+    if (got .neqv. expected) then
+      print *, 'FAIL ', name, ': got=', got, ' expected=', expected
+      failures = failures + 1
+    else
+      print *, 'PASS ', name
+    end if
+  end subroutine
+
+  subroutine test_past_station_north(failures)
+    integer, intent(inout) :: failures
+    call check_past('test_past_station_north_past', 1, 1, 350.0, 9.0, &
+                    33.70, 241.82, 33.69, 241.82, .true., .true., failures)
+    call check_past('test_past_station_north_before', 1, 1, 350.0, 9.0, &
+                    33.68, 241.82, 33.69, 241.82, .true., .false., failures)
+  end subroutine
+
+  subroutine test_past_station_south(failures)
+    integer, intent(inout) :: failures
+    call check_past('test_past_station_south_past', 1, 3, 180.0, 9.0, &
+                    33.68, 241.82, 33.69, 241.82, .true., .true., failures)
+  end subroutine
+
+  subroutine test_past_station_east(failures)
+    integer, intent(inout) :: failures
+    call check_past('test_past_station_east_past', 0, 2, 90.0, 9.0, &
+                    33.0, 200.2, 33.0, 200.1, .true., .true., failures)
+  end subroutine
+
+  ! More than 20 degrees of longitude beyond the station is not past it
+  subroutine test_past_station_east_too_far(failures)
+    integer, intent(inout) :: failures
+    call check_past('test_past_station_east_too_far', 0, 2, 90.0, 9.0, &
+                    33.0, 225.0, 33.0, 200.0, .true., .false., failures)
+  end subroutine
+
+  subroutine test_past_station_west(failures)
+    integer, intent(inout) :: failures
+    call check_past('test_past_station_west_past', 0, 4, 270.0, 9.0, &
+                    33.0, 200.0, 33.0, 200.1, .true., .true., failures)
+  end subroutine
+
+  ! Westbound across 0/360: station 0.5E, ship at 359.9 has passed it
+  subroutine test_past_station_west_across_zero(failures)
+    integer, intent(inout) :: failures
+    call check_past('test_past_station_west_across_zero', 0, 4, 270.0, 9.0, &
+                    0.0, 359.9, 0.0, 0.5, .true., .true., failures)
+  end subroutine
+
+  ! Lon plan westbound but ship heading east (circling): no trigger
+  subroutine test_past_station_wrong_heading_lon(failures)
+    integer, intent(inout) :: failures
+    call check_past('test_past_station_wrong_heading_lon', 0, 4, 90.0, 9.0, &
+                    33.0, 200.0, 33.0, 200.1, .true., .false., failures)
+  end subroutine
+
+  ! Lat plan northbound but ship heading south: no trigger
+  subroutine test_past_station_wrong_heading_lat(failures)
+    integer, intent(inout) :: failures
+    call check_past('test_past_station_wrong_heading_lat', 1, 1, 180.0, 9.0, &
+                    33.70, 241.82, 33.69, 241.82, .true., .false., failures)
+  end subroutine
+
+  subroutine test_past_station_over_max_speed(failures)
+    integer, intent(inout) :: failures
+    call check_past('test_past_station_over_max_speed', 1, 1, 350.0, 25.0, &
+                    33.70, 241.82, 33.69, 241.82, .true., .false., failures)
+  end subroutine
+
+  subroutine test_past_station_bad_plandir(failures)
+    integer, intent(inout) :: failures
+    call check_past('test_past_station_bad_plandir', 1, 0, 350.0, 9.0, &
+                    33.70, 241.82, 33.69, 241.82, .true., .false., failures)
+  end subroutine
+
+  ! Fix 3: geometrically past, but the position source is not trusted
+  subroutine test_past_station_untrusted(failures)
+    integer, intent(inout) :: failures
+    call check_past('test_past_station_untrusted', 1, 1, 350.0, 9.0, &
+                    33.70, 241.82, 33.69, 241.82, .false., .false., failures)
+  end subroutine
+
+  ! ---------------------------------------------------------------------------
+  ! ave_consistent(vlat_prev, vlon_prev, timeave_prev, speed, dir,
+  !                vlat_new, vlon_new, timeave_new)
+  !   true when the new GPS average lies within 0.5 nm of the position dead
+  !   reckoned from the previous average with the previous speed/dir.
+  ! ---------------------------------------------------------------------------
+
+  subroutine check_consistent(name, vlat_new, vlon_new, dt, expected, failures)
+    character(len=*), intent(in) :: name
+    real,    intent(in)    :: vlat_new, vlon_new, dt
+    logical, intent(in)    :: expected
+    integer, intent(inout) :: failures
+    logical :: got
+    ! previous average: 33.6304N 241.8317E at 43170 s, 10 kt due north
+    got = ave_consistent(33.6304, 241.8317, 43170.0, 10.0, 0.0, &
+                         vlat_new, vlon_new, 43170.0 + dt)
+    if (got .neqv. expected) then
+      print *, 'FAIL ', name, ': got=', got, ' expected=', expected
+      failures = failures + 1
+    else
+      print *, 'PASS ', name
+    end if
+  end subroutine
+
+  ! 60 s at 10 kt north = 0.1667 nm = 0.002778 deg lat, exactly as predicted
+  subroutine test_ave_consistent_on_track(failures)
+    integer, intent(inout) :: failures
+    call check_consistent('test_ave_consistent_on_track', 33.6304 + 0.002778, &
+                          241.8317, 60.0, .true., failures)
+  end subroutine
+
+  ! 0.3 nm off the prediction (course change, current): still consistent
+  subroutine test_ave_consistent_small_offset(failures)
+    integer, intent(inout) :: failures
+    call check_consistent('test_ave_consistent_small_offset', 33.6304 + 0.002778, &
+                          241.8317 + 0.3/(60.0*cos(33.63*3.141592654/180.0)), &
+                          60.0, .true., failures)
+  end subroutine
+
+  ! 2 nm ahead of the prediction: GPS glitch, not trusted
+  subroutine test_ave_consistent_jump_2nm(failures)
+    integer, intent(inout) :: failures
+    call check_consistent('test_ave_consistent_jump_2nm', &
+                          33.6304 + 0.002778 + 2.0/60.0, &
+                          241.8317, 60.0, .false., failures)
+  end subroutine
+
+  ! 9/8/26-size jump (10.4 nm)
+  subroutine test_ave_consistent_jump_0908(failures)
+    integer, intent(inout) :: failures
+    call check_consistent('test_ave_consistent_jump_0908', 33.6304 + 10.43/60.0, &
+                          241.8317, 60.0, .false., failures)
+  end subroutine
+
+  ! Eastbound across 0/360 on the equator, on track
+  subroutine test_ave_consistent_lon_wrap(failures)
+    integer, intent(inout) :: failures
+    logical :: got
+    got = ave_consistent(0.0, 359.999, 1000.0, 10.0, 90.0, &
+                         0.0, 0.001778, 1060.0)
+    if (.not. got) then
+      print *, 'FAIL test_ave_consistent_lon_wrap'
+      failures = failures + 1
+    else
+      print *, 'PASS test_ave_consistent_lon_wrap'
+    end if
+  end subroutine
+
+  ! Stuck average (same timeave repeated, 9/8 12:06:18) at the same position
+  subroutine test_ave_consistent_stuck_same(failures)
+    integer, intent(inout) :: failures
+    call check_consistent('test_ave_consistent_stuck_same', 33.6304, 241.8317, &
+                          0.0, .true., failures)
+  end subroutine
+
+  ! Same timeave but position moved 1 nm: inconsistent
+  subroutine test_ave_consistent_stuck_moved(failures)
+    integer, intent(inout) :: failures
+    call check_consistent('test_ave_consistent_stuck_moved', 33.6304 + 1.0/60.0, &
+                          241.8317, 0.0, .false., failures)
   end subroutine
 
   ! ---------------------------------------------------------------------------
