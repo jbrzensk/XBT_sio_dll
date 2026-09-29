@@ -998,7 +998,7 @@
     use sio_nav,     only: ave, newpos, xbteta, interp, planinfo, chkall, chkbuf, chkwrite, &
                            dr_elapsed, past_station, ave_consistent, check_time, check_fix
     use sio_time,    only: gettim, getdat, dayofw, gettmtg, timetohms, yrdy, compare, findtime, &
-                           drops_too_close, pc_new_minute
+                           drops_too_close, pc_new_minute, clock_seconds
     use sio_convert, only: ch2real, real2ch, int2ch, dec2deg, deg2dec, findspace, lev
     implicit none
     integer, parameter :: nerr = 50
@@ -1049,6 +1049,9 @@
     logical :: timeok, fixok
     real    :: tgood
     integer :: iupd
+    ! Monotonic system clock behind itime (unaffected by PC clock changes)
+    integer(kind=8), save :: iclkbase = -1
+    integer(kind=8) :: iclknow, iclkrate, iclkmax
 
     integer :: iw, ifile, ios, len_adir
     integer :: igderr(3)
@@ -1136,6 +1139,7 @@
        ntcand = 0
        itafix = -1
        ncfix = 0
+       iclkbase = -1
     end if
 
     vlat1 = vlat
@@ -1168,12 +1172,12 @@
          ' pc ', int(j3), '/', int(j2), '/', int(j1), idhr, ':', idmin, ':', idsec
     if (iw == 1) call flush(ifile)
 
-    idchange = 0
-    if (dtime >= dtime1) then
-       idchange = int(dtime) - int(dtime1)
-    else
-       idchange = int((86400.0 - dtime1) + dtime)
-    end if
+    ! itime: seconds since siobegin, counted on the monotonic system clock.
+    ! The PC time-of-day difference jumped whenever the clock was changed
+    ! (time sync, DST, ship's time zone; a 1 s step back read as +86399 s),
+    ! and dr_elapsed and check_time trust itime.
+    call system_clock(iclknow, iclkrate, iclkmax)
+    call clock_seconds(iclknow, iclkrate, iclkmax, iclkbase, idchange)
     itime = itime + idchange
     if (iw == 1 .and. ierrlev == 6) then
        write(ifile, *) 'dtime1=', dtime1, ' dtime=', dtime, ' itime=', itime

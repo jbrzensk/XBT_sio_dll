@@ -30,6 +30,13 @@ program test_sio_time
   call test_pc_new_minute_clock_back_across(failures)
   call test_pc_new_minute_clock_back_within(failures)
   call test_pc_new_minute_once_per_minute(failures)
+  call test_clock_seconds_first_call(failures)
+  call test_clock_seconds_one_second(failures)
+  call test_clock_seconds_remainder_carries(failures)
+  call test_clock_seconds_uneven_calls(failures)
+  call test_clock_seconds_counter_wrap(failures)
+  call test_clock_seconds_backwards_count(failures)
+  call test_clock_seconds_system_clock(failures)
   call test_compare_first_later(failures)
   call test_compare_first_earlier(failures)
   call test_compare_equal(failures)
@@ -509,6 +516,112 @@ contains
       failures = failures + 1
     else
       print *, 'PASS test_pc_new_minute_once_per_minute'
+    end if
+  end subroutine
+
+  ! ---------------------------------------------------------------------------
+  ! clock_seconds(cnow, crate, cmax, cbase, isec): whole seconds on the
+  ! monotonic system clock since cbase. sioloop's itime used PC time of day,
+  ! so any clock change jumped it (a 1 s step back = +86399 s), and
+  ! dr_elapsed / check_time trust itime.
+  ! ---------------------------------------------------------------------------
+
+  subroutine test_clock_seconds_first_call(failures)
+    integer, intent(inout) :: failures
+    integer(kind=8) :: cbase
+    integer :: isec
+    cbase = -1
+    call clock_seconds(123456789_8, 10000000_8, huge(0_8), cbase, isec)
+    call check_clock('test_clock_seconds_first_call', &
+         isec == 0 .and. cbase == 123456789_8, isec, failures)
+  end subroutine
+
+  subroutine test_clock_seconds_one_second(failures)
+    integer, intent(inout) :: failures
+    integer(kind=8) :: cbase
+    integer :: isec
+    cbase = 5000
+    call clock_seconds(6000_8, 1000_8, huge(0_8), cbase, isec)
+    call check_clock('test_clock_seconds_one_second', &
+         isec == 1 .and. cbase == 6000_8, isec, failures)
+  end subroutine
+
+  subroutine test_clock_seconds_remainder_carries(failures)
+    ! 0.999 s: nothing yet, base kept; at 1.001 s total: one second counted
+    integer, intent(inout) :: failures
+    integer(kind=8) :: cbase
+    integer :: isec1, isec2
+    cbase = 5000
+    call clock_seconds(5999_8, 1000_8, huge(0_8), cbase, isec1)
+    call clock_seconds(6001_8, 1000_8, huge(0_8), cbase, isec2)
+    call check_clock('test_clock_seconds_remainder_carries', &
+         isec1 == 0 .and. isec2 == 1 .and. cbase == 6000_8, isec2, failures)
+  end subroutine
+
+  subroutine test_clock_seconds_uneven_calls(failures)
+    ! 50 calls 1.2 s apart = 60 s
+    integer, intent(inout) :: failures
+    integer(kind=8) :: cbase, cnow
+    integer :: isec, total, i
+    cbase = 0
+    cnow = 0
+    total = 0
+    do i = 1, 50
+      cnow = cnow + 12000000_8
+      call clock_seconds(cnow, 10000000_8, huge(0_8), cbase, isec)
+      total = total + isec
+    end do
+    call check_clock('test_clock_seconds_uneven_calls', total == 60, total, failures)
+  end subroutine
+
+  subroutine test_clock_seconds_counter_wrap(failures)
+    ! 32-bit millisecond counter wrapping (every 24.8 days)
+    integer, intent(inout) :: failures
+    integer(kind=8) :: cbase, cmax
+    integer :: isec
+    cmax = 2147483647_8
+    cbase = cmax - 499
+    call clock_seconds(500_8, 1000_8, cmax, cbase, isec)
+    call check_clock('test_clock_seconds_counter_wrap', &
+         isec == 1 .and. cbase == 500_8, isec, failures)
+  end subroutine
+
+  subroutine test_clock_seconds_backwards_count(failures)
+    ! A monotonic counter should never go back; if it does, count nothing
+    ! and resync rather than read it as a wrap (~huge seconds)
+    integer, intent(inout) :: failures
+    integer(kind=8) :: cbase
+    integer :: isec
+    cbase = 90000000_8
+    call clock_seconds(89990000_8, 10000000_8, huge(0_8), cbase, isec)
+    call check_clock('test_clock_seconds_backwards_count', &
+         isec == 0 .and. cbase == 89990000_8, isec, failures)
+  end subroutine
+
+  subroutine test_clock_seconds_system_clock(failures)
+    ! The real clock this build uses: a rate, and counts that do not go back
+    integer, intent(inout) :: failures
+    integer(kind=8) :: c1, c2, crate, cmax, cbase
+    integer :: isec
+    call system_clock(c1, crate, cmax)
+    call system_clock(c2)
+    cbase = -1
+    call clock_seconds(c1, crate, cmax, cbase, isec)
+    call clock_seconds(c2, crate, cmax, cbase, isec)
+    call check_clock('test_clock_seconds_system_clock', &
+         crate > 0 .and. c2 >= c1 .and. isec == 0, isec, failures)
+  end subroutine
+
+  subroutine check_clock(name, cond, isec, failures)
+    character(len=*), intent(in) :: name
+    logical, intent(in)    :: cond
+    integer, intent(in)    :: isec
+    integer, intent(inout) :: failures
+    if (.not. cond) then
+      print *, 'FAIL ', name, ': isec=', isec
+      failures = failures + 1
+    else
+      print *, 'PASS ', name
     end if
   end subroutine
 

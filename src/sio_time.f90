@@ -3,7 +3,7 @@ module sio_time
   implicit none
   private
   public :: compare, dayofw, gettmtg, findtime, yrdy, timetohms, gettim, getdat
-  public :: drops_too_close, pc_new_minute
+  public :: drops_too_close, pc_new_minute, clock_seconds
 
 contains
 
@@ -186,6 +186,43 @@ contains
     pc_new_minute = step > 0.0 .and. step < 43200.0 .and. &
                     int(tnow / 60.0) /= int(tprev / 60.0)
   end function pc_new_minute
+
+  ! Whole seconds elapsed on the monotonic system clock (system_clock counts)
+  ! since cbase. cbase advances by exactly those seconds, so the remainder
+  ! carries (calls every 0.99 s still count). Drives sioloop's itime: PC time
+  ! of day jumps when the clock is changed (time sync, DST, ship's time zone),
+  ! and a 1 s step back read as +86399 s.
+  ! cbase < 0: no reference yet -> isec = 0, cbase = cnow.
+  ! One counter wrap at cmax is handled; a step of over a day (or a counter
+  ! going backwards) counts nothing and resyncs, as the old time-of-day
+  ! difference never counted whole days either.
+  subroutine clock_seconds(cnow, crate, cmax, cbase, isec)
+    integer(kind=8), intent(in)    :: cnow, crate, cmax
+    integer(kind=8), intent(inout) :: cbase
+    integer,         intent(out)   :: isec
+    integer(kind=8) :: dc, adv
+    isec = 0
+    if (cbase < 0 .or. crate <= 0) then
+      cbase = cnow
+      return
+    end if
+    if (cnow >= cbase) then
+      dc = cnow - cbase
+    else
+      dc = (cmax - cbase) + cnow + 1          ! counter wrapped
+    end if
+    if (dc / crate > 86400_8) then
+      cbase = cnow
+      return
+    end if
+    isec = int(dc / crate)
+    adv = int(isec, 8) * crate
+    if (cbase <= cmax - adv) then
+      cbase = cbase + adv
+    else
+      cbase = adv - (cmax - cbase) - 1        ! base wraps too
+    end if
+  end subroutine clock_seconds
 
   ! Convert timetag (seconds in GPS week) to hours/minutes/seconds. siosub.for:2172.
   ! timetag — input seconds (may span multiple days)
