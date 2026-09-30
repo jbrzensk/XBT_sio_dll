@@ -48,6 +48,15 @@ program test_sio_nav
   call test_past_station_bad_plandir(failures)
   call test_past_station_untrusted(failures)
 
+  ! drop_countdown (runsec settle delay: arm once, re-check when it runs out)
+  call test_countdown_zero_delay_fires_at_once(failures)
+  call test_countdown_idle(failures)
+  call test_countdown_arms_once_and_fires(failures)
+  call test_countdown_single_glitch_cannot_drop(failures)
+  call test_countdown_rearms_after_glitch(failures)
+  call test_countdown_trust_lost_cancels(failures)
+  call test_countdown_late_call_fires(failures)
+
   ! ave_consistent (new average agrees with dead reckoning from the last one)
   call test_ave_consistent_on_track(failures)
   call test_ave_consistent_small_offset(failures)
@@ -530,6 +539,131 @@ contains
     integer, intent(inout) :: failures
     call check_past('test_past_station_untrusted', 1, 1, 350.0, 9.0, &
                     33.70, 241.82, 33.69, 241.82, .false., .false., failures)
+  end subroutine
+
+  ! ---------------------------------------------------------------------------
+  ! drop_countdown(pastnow, trusted, itime, runsec, idsec2, stoptime, fire, event)
+  ! Called once per sioloop call. event: 0 none, 1 armed, 2 cancelled (trust
+  ! lost), 3 cancelled (not past when it ran out), 4 fire.
+  ! ---------------------------------------------------------------------------
+
+  subroutine test_countdown_zero_delay_fires_at_once(failures)
+    ! runsec=0 (every deployment today): drop on the first trusted past fix,
+    ! exactly as before
+    integer, intent(inout) :: failures
+    integer :: idsec2, event
+    real    :: stoptime
+    logical :: fire
+    idsec2 = 0
+    stoptime = 9.9e9
+    call drop_countdown(.true., .true., 100, 0.0, idsec2, stoptime, fire, event)
+    call report('test_countdown_zero_delay_fires_at_once', &
+         fire .and. idsec2 == 1 .and. event == 4, failures)
+  end subroutine
+
+  subroutine test_countdown_idle(failures)
+    integer, intent(inout) :: failures
+    integer :: idsec2, event
+    real    :: stoptime
+    logical :: fire
+    idsec2 = 0
+    stoptime = 9.9e9
+    call drop_countdown(.false., .true., 100, 10.0, idsec2, stoptime, fire, event)
+    call report('test_countdown_idle', &
+         .not. fire .and. idsec2 == 0 .and. event == 0, failures)
+  end subroutine
+
+  subroutine test_countdown_arms_once_and_fires(failures)
+    ! The bug: stoptime = itime + runsec was re-set on every past call, so
+    ! with runsec > 0 the countdown never ran out. Past from 100 on, runsec=10:
+    ! armed at 100, fires at 110.
+    integer, intent(inout) :: failures
+    integer :: idsec2, event, it, ifire
+    real    :: stoptime
+    logical :: fire
+    idsec2 = 0
+    stoptime = 9.9e9
+    ifire = -1
+    do it = 100, 120
+      call drop_countdown(.true., .true., it, 10.0, idsec2, stoptime, fire, event)
+      if (fire .and. ifire < 0) ifire = it
+    end do
+    if (ifire /= 110) print *, '   first fire at itime', ifire, ' expected 110'
+    call report('test_countdown_arms_once_and_fires', ifire == 110, failures)
+  end subroutine
+
+  subroutine test_countdown_single_glitch_cannot_drop(failures)
+    ! One bad position past the station at 100, then back before it: the
+    ! re-check at 110 cancels instead of dropping
+    integer, intent(inout) :: failures
+    integer :: idsec2, event, it, nfire, ev110
+    real    :: stoptime
+    logical :: fire
+    idsec2 = 0
+    stoptime = 9.9e9
+    nfire = 0
+    ev110 = -1
+    do it = 100, 160
+      call drop_countdown(it == 100, .true., it, 10.0, idsec2, stoptime, fire, event)
+      if (fire) nfire = nfire + 1
+      if (it == 110) ev110 = event
+    end do
+    if (nfire /= 0 .or. ev110 /= 3) print *, '   fires=', nfire, ' event@110=', ev110
+    call report('test_countdown_single_glitch_cannot_drop', &
+         nfire == 0 .and. ev110 == 3 .and. idsec2 == 0, failures)
+  end subroutine
+
+  subroutine test_countdown_rearms_after_glitch(failures)
+    ! Glitch at 100 (cancelled at 110), real crossing at 115: fires at 125
+    integer, intent(inout) :: failures
+    integer :: idsec2, event, it, ifire
+    real    :: stoptime
+    logical :: fire
+    idsec2 = 0
+    stoptime = 9.9e9
+    ifire = -1
+    do it = 100, 140
+      call drop_countdown(it == 100 .or. it >= 115, .true., it, 10.0, &
+                          idsec2, stoptime, fire, event)
+      if (fire .and. ifire < 0) ifire = it
+    end do
+    if (ifire /= 125) print *, '   first fire at itime', ifire, ' expected 125'
+    call report('test_countdown_rearms_after_glitch', ifire == 125, failures)
+  end subroutine
+
+  subroutine test_countdown_trust_lost_cancels(failures)
+    ! Armed at 100; position unconfirmed at 105 (past_station is false when
+    ! untrusted) cancels; trusted and past again from 106: fires at 116
+    integer, intent(inout) :: failures
+    integer :: idsec2, event, it, ifire, ev105
+    real    :: stoptime
+    logical :: fire, trusted
+    idsec2 = 0
+    stoptime = 9.9e9
+    ifire = -1
+    ev105 = -1
+    do it = 100, 130
+      trusted = it /= 105
+      call drop_countdown(trusted, trusted, it, 10.0, idsec2, stoptime, fire, event)
+      if (fire .and. ifire < 0) ifire = it
+      if (it == 105) ev105 = event
+    end do
+    if (ifire /= 116 .or. ev105 /= 2) print *, '   first fire', ifire, ' event@105=', ev105
+    call report('test_countdown_trust_lost_cancels', &
+         ifire == 116 .and. ev105 == 2, failures)
+  end subroutine
+
+  subroutine test_countdown_late_call_fires(failures)
+    ! Calls stalled: armed at 100, next call at 130 and still past -> fire
+    integer, intent(inout) :: failures
+    integer :: idsec2, event
+    real    :: stoptime
+    logical :: fire
+    idsec2 = 0
+    stoptime = 9.9e9
+    call drop_countdown(.true., .true., 100, 10.0, idsec2, stoptime, fire, event)
+    call drop_countdown(.true., .true., 130, 10.0, idsec2, stoptime, fire, event)
+    call report('test_countdown_late_call_fires', fire .and. event == 4, failures)
   end subroutine
 
   ! ---------------------------------------------------------------------------
