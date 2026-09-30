@@ -68,6 +68,10 @@ sio_api.o: $(MODDIR)/sio_api.f90 sio_core.o
 test_support.o: $(TESTDIR)/test_support.f90 sio_io.o
 	$(FC) $(FFLAGS) -c $< -o $@
 
+# Test helper: plays Seas (siobegin/sioloop/sioend call sequence)
+seas_sim.o: $(TESTDIR)/seas_sim.f90
+	$(FC) $(FFLAGS) -c $< -o $@
+
 # --- Unit tests ---
 unit_tests: $(UNIT_TESTS)
 
@@ -101,7 +105,7 @@ test_integration_nav: $(TESTDIR)/integration/test_integration_nav.f90 test_suppo
 test_integration_core: $(TESTDIR)/integration/test_integration_core.f90 test_support.o $(MOD_OBJS)
 	$(FC) $(FFLAGS) $^ -o $@
 
-test_integration_api: $(TESTDIR)/integration/test_integration_api.f90 test_support.o $(MOD_OBJS) sio_api.o
+test_integration_api: $(TESTDIR)/integration/test_integration_api.f90 test_support.o seas_sim.o $(MOD_OBJS) sio_api.o
 	$(FC) $(FFLAGS) $^ -o $@
 
 # --- Run all tests ---
