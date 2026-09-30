@@ -56,6 +56,8 @@ program test_sio_nav
   call test_countdown_rearms_after_glitch(failures)
   call test_countdown_trust_lost_cancels(failures)
   call test_countdown_late_call_fires(failures)
+  call test_begin_holds_drop_until_average(failures)
+  call test_begin_drop_after_confirming_average(failures)
 
   ! ave_consistent (new average agrees with dead reckoning from the last one)
   call test_ave_consistent_on_track(failures)
@@ -664,6 +666,58 @@ contains
     call drop_countdown(.true., .true., 100, 10.0, idsec2, stoptime, fire, event)
     call drop_countdown(.true., .true., 130, 10.0, idsec2, stoptime, fire, event)
     call report('test_countdown_late_call_fires', fire .and. event == 4, failures)
+  end subroutine
+
+  ! ---------------------------------------------------------------------------
+  ! After siobegin (Seas calls it after every launch) sioloop reloads the last
+  ! position from navtrk.dat/.nav and starts dead reckoning at once, with the
+  ! GPS time/fix references reset. Scenario: reloaded position already past
+  ! the next station (northbound lat plan, station 37.75 N, ship 37.80 N).
+  ! ---------------------------------------------------------------------------
+
+  subroutine begin_scenario(postrust, it0, it1, idsec2, stoptime, ifire)
+    logical, intent(in)    :: postrust
+    integer, intent(in)    :: it0, it1
+    integer, intent(inout) :: idsec2
+    real,    intent(inout) :: stoptime
+    integer, intent(out)   :: ifire
+    integer :: it, event
+    logical :: fire, pastnow
+    ifire = -1
+    do it = it0, it1
+      pastnow = past_station(1, 1, 0.0, 10.0, 20.0, 37.80, 200.5, 37.75, 200.5, postrust)
+      call drop_countdown(pastnow, postrust, it, 5.0, idsec2, stoptime, fire, event)
+      if (fire .and. ifire < 0) ifire = it
+    end do
+  end subroutine
+
+  subroutine test_begin_holds_drop_until_average(failures)
+    ! No fresh GPS average yet: the reloaded position must not arm a drop
+    integer, intent(inout) :: failures
+    integer :: idsec2, ifire
+    real    :: stoptime
+    idsec2 = 0
+    stoptime = 9.9e9
+    call begin_scenario(postrust_at_begin, 1, 60, idsec2, stoptime, ifire)
+    if (ifire >= 0) print *, '   dropped at itime', ifire, ' before any GPS average'
+    call report('test_begin_holds_drop_until_average', ifire < 0, failures)
+  end subroutine
+
+  subroutine test_begin_drop_after_confirming_average(failures)
+    ! First average (90 s after the reloaded fix, 10 kn north) agrees with
+    ! dead reckoning from the reloaded position -> trusted -> drop 5 s later
+    integer, intent(inout) :: failures
+    integer :: idsec2, ifire
+    real    :: stoptime
+    logical :: postrust
+    idsec2 = 0
+    stoptime = 9.9e9
+    call begin_scenario(postrust_at_begin, 1, 60, idsec2, stoptime, ifire)
+    postrust = ave_consistent(37.80, 200.5, 43200.0, 10.0, 0.0, &
+                              37.80 + 1.5 / 60.0 * 10.0 / 60.0, 200.5, 43290.0)
+    call begin_scenario(postrust, 61, 80, idsec2, stoptime, ifire)
+    if (ifire /= 66) print *, '   trusted=', postrust, ' first fire', ifire, ' expected 66'
+    call report('test_begin_drop_after_confirming_average', ifire == 66, failures)
   end subroutine
 
   ! ---------------------------------------------------------------------------
