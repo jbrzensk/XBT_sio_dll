@@ -85,7 +85,7 @@ test_sio_nav: $(TESTDIR)/unit/test_sio_nav.f90 sio_nav.o sio_math.o sio_time.o s
 test_sio_io: $(TESTDIR)/unit/test_sio_io.f90 test_support.o sio_io.o sio_convert.o sio_time.o
 	$(FC) $(FFLAGS) $^ -o $@
 
-test_sio_core: $(TESTDIR)/unit/test_sio_core.f90 $(MOD_OBJS)
+test_sio_core: $(TESTDIR)/unit/test_sio_core.f90 test_support.o $(MOD_OBJS)
 	$(FC) $(FFLAGS) $^ -o $@
 
 # --- Integration tests ---
@@ -94,10 +94,10 @@ integration_tests: $(INT_TESTS)
 test_integration_io: $(TESTDIR)/integration/test_integration_io.f90 test_support.o $(MOD_OBJS)
 	$(FC) $(FFLAGS) $^ -o $@
 
-test_integration_nav: $(TESTDIR)/integration/test_integration_nav.f90 $(MOD_OBJS)
+test_integration_nav: $(TESTDIR)/integration/test_integration_nav.f90 test_support.o $(MOD_OBJS)
 	$(FC) $(FFLAGS) $^ -o $@
 
-test_integration_core: $(TESTDIR)/integration/test_integration_core.f90 $(MOD_OBJS)
+test_integration_core: $(TESTDIR)/integration/test_integration_core.f90 test_support.o $(MOD_OBJS)
 	$(FC) $(FFLAGS) $^ -o $@
 
 # --- Run all tests ---

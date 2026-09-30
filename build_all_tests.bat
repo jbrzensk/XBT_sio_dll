@@ -30,7 +30,11 @@ gfortran --coverage -fno-underscoring -fallow-argument-mismatch tests\unit\test_
 if errorlevel 1 (echo FAILED test_sio_nav link & exit /b 1)
 gfortran --coverage -fno-underscoring -fallow-argument-mismatch tests\unit\test_sio_io.f90 test_support.o sio_io.o sio_convert.o sio_time.o --coverage -o test_sio_io.exe
 if errorlevel 1 (echo FAILED test_sio_io link & exit /b 1)
-gfortran --coverage -fno-underscoring -fallow-argument-mismatch tests\unit\test_sio_core.f90 sio_math.o sio_convert.o sio_time.o sio_io.o sio_nav.o sio_core.o --coverage -o test_sio_core.exe
+gfortran --coverage -fno-underscoring -fallow-argument-mismatch tests\unit\test_sio_core.f90 test_support.o sio_math.o sio_convert.o sio_time.o sio_io.o sio_nav.o sio_core.o --coverage -o test_sio_core.exe
 if errorlevel 1 (echo FAILED test_sio_core link & exit /b 1)
+for %%t in (test_integration_io test_integration_nav test_integration_core) do (
+  gfortran --coverage -fno-underscoring -fallow-argument-mismatch tests\integration\%%t.f90 test_support.o sio_math.o sio_convert.o sio_time.o sio_io.o sio_nav.o sio_core.o --coverage -o %%t.exe
+  if errorlevel 1 (echo FAILED %%t link & exit /b 1)
+)
 
 echo BUILD OK

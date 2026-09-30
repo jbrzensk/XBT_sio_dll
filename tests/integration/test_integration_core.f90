@@ -1,9 +1,10 @@
 ! tests/integration/test_integration_core.f90
 ! Integration tests for sio_core module control flow and error codes.
-! Linux compatibility: chkprof requires a valid siodir.txt (Windows path),
-! so tests that call chkprof directly print WARN and skip when getdir fails.
+! Routines that find their files through getdir run against scratch copies
+! (tests/test_support.f90), never the installed Seas data.
 program test_integration_core
   use sio_core
+  use test_support
   implicit none
   integer :: failures = 0
 
@@ -25,21 +26,25 @@ program test_integration_core
 
 contains
 
-  ! sioend with valid inputs: on Linux getdir fails (ierror(7)=1, ierror(35)=307)
-  ! and sioend returns early without touching ierror(5/6/14/23) — still PASS.
+  ! sioend with valid inputs writes navtrk.dat/.nav/sio.log without file
+  ! errors (scratch directory; this test used to zero the installed
+  ! Seas navtrk.dat)
   subroutine test_sioend_no_crash(failures)
     integer, intent(inout) :: failures
     integer :: ierror(50)
     integer :: ibuf, iSIOSpeedAveMin
     real :: speed, dir, timeave, vlat, vlon
     real :: clatbuf(200), clonbuf(200), ctagbuf(200)
+    character(len=80) :: sdir
     ierror = 0
+    call scratch_dir('sioend', sdir)
+    call point_getdir_at(sdir)
     ibuf = 0; iSIOSpeedAveMin = 10
     speed = 0.0; dir = 0.0; timeave = 0.0; vlat = 0.0; vlon = 0.0
     clatbuf = 0.0; clonbuf = 0.0; ctagbuf = 0.0
     call sioend(1, ibuf, 0, ierror, 0, 0, 0, speed, dir, timeave, vlat, vlon, &
                 1, 6, 2024, 0, ctagbuf, clatbuf, clonbuf, iSIOSpeedAveMin)
-    if (ierror(5) == 1 .or. ierror(6) == 1 .or. &
+    if (ierror(7) == 1 .or. ierror(5) == 1 .or. ierror(6) == 1 .or. &
         ierror(14) == 1 .or. ierror(23) == 1) then
       print *, 'FAIL test_sioend_no_crash: unexpected file errors'
       failures = failures + 1
@@ -132,20 +137,20 @@ contains
   end subroutine test_dropmin_exceeded_sets_ierror10
 
   ! chkprof on first call → ierror(31)=1 (no previous profile).
-  ! Requires siodir.txt (Windows path) — WARN and skip on Linux when getdir fails.
+  ! Needs a stations.dat: scratch copy of tests/fixtures/base.
   subroutine test_first_profile_sets_ierror31(failures)
     integer, intent(inout) :: failures
     integer :: ierror(50), ireturn, ichoosedrop
+    character(len=80) :: dir
     ierror = 0
     ichoosedrop = 0
     ireturn = 0
+    call scratch_dir('chkprof_first', dir, 'tests\fixtures\base')
+    call point_getdir_at(dir)
     call chkprof(ierror, ireturn, ichoosedrop)
-    ! On Linux, getdir fails first (ierror(7)=1) → chkprof returns early,
-    ! ierror(31) is never reached — skip rather than fail.
-    if (ierror(7) == 1) then
-      print *, 'WARN test_first_profile_sets_ierror31: getdir failed (Linux) - skipping'
-    else if (ierror(31) /= 1) then
-      print *, 'FAIL test_first_profile_sets_ierror31: ierror(31)=', ierror(31)
+    if (ierror(31) /= 1) then
+      print *, 'FAIL test_first_profile_sets_ierror31: ierror(31)=', ierror(31), &
+               ' ierror(7)=', ierror(7), ' ierror(25)=', ierror(25)
       failures = failures + 1
     else
       print *, 'PASS test_first_profile_sets_ierror31'

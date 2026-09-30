@@ -2,6 +2,7 @@
 program test_integration_nav
   use sio_nav
   use sio_core, only: wrdrpstn
+  use test_support
   implicit none
   integer :: failures = 0
 
@@ -100,15 +101,17 @@ contains
     end if
   end subroutine
 
-  ! wrdrpstn with nextdrop beyond end of stations.dat → ierror(32) or ierror(25) or ierror(7)
+  ! wrdrpstn with nextdrop beyond end of stations.dat → ierror(32)
+  ! (scratch copy of tests/fixtures/base: stations.dat has one drop)
   subroutine test_stations_exhausted_ierror3(failures)
     integer, intent(inout) :: failures
     integer :: ierror(50)
+    character(len=80) :: dir
     ierror = 0
-    ! Drop number 9999 will not be found in tests/data/stations.dat → ierror(32)=1
-    ! On Linux, getdir fails first → ierror(7)=1
+    call scratch_dir('wrdrpstn_exhausted', dir, 'tests\fixtures\base')
+    call point_getdir_at(dir)
     call wrdrpstn(9999, 1, 15.5, 1, 6, 2024, 12, 0, 0, ierror, 30.0, 200.0)
-    if (ierror(32) /= 1 .and. ierror(25) /= 1 .and. ierror(7) /= 1) then
+    if (ierror(32) /= 1) then
       print *, 'FAIL test_stations_exhausted_ierror3: ierror(7)=', ierror(7), &
                ' ierror(25)=', ierror(25), ' ierror(32)=', ierror(32)
       failures = failures + 1

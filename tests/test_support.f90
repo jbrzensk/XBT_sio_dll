@@ -7,7 +7,7 @@ module test_support
   use sio_io, only: siodir_file
   implicit none
   private
-  public :: scratch_dir, point_getdir_at, point_getdir_at_missing
+  public :: scratch_dir, point_getdir_at, point_getdir_at_missing, delete_file
 
 contains
 
@@ -18,12 +18,15 @@ contains
     character(len=*), intent(in)           :: name
     character(len=*), intent(out)          :: dir
     character(len=*), intent(in), optional :: template
-    dir = 'tests\tmp\' // trim(name) // '\'
-    call execute_command_line('if exist "' // trim(dir) // '" rmdir /s /q "' // &
-                              trim(dir) // '"')
-    call execute_command_line('mkdir "' // trim(dir) // 'Data"')
+    character(len=200) :: base
+    ! no trailing '\' inside quotes: "dir\" can read as an escaped quote
+    base = 'tests\tmp\' // trim(name)
+    dir = trim(base) // '\'
+    call execute_command_line('if exist "' // trim(base) // '" rmdir /s /q "' // &
+                              trim(base) // '"')
+    call execute_command_line('mkdir "' // trim(base) // '\Data"')
     if (present(template)) call execute_command_line('xcopy /e /i /q /y "' // &
-         trim(template) // '" "' // trim(dir) // '" >nul')
+         trim(template) // '" "' // trim(base) // '" >nul')
   end subroutine scratch_dir
 
   ! Write <dir>siodir.txt naming dir (Seas format: path ending in '?') and
@@ -41,5 +44,13 @@ contains
   subroutine point_getdir_at_missing()
     siodir_file = 'tests\tmp\no_such_dir\siodir.txt'
   end subroutine point_getdir_at_missing
+
+  ! Delete a file if it exists (e.g. one file of a copied fixture)
+  subroutine delete_file(path)
+    character(len=*), intent(in) :: path
+    integer :: u, ios
+    open(newunit=u, file=trim(path), status='old', iostat=ios)
+    if (ios == 0) close(u, status='delete')
+  end subroutine delete_file
 
 end module test_support

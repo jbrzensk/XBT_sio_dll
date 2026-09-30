@@ -1,6 +1,7 @@
 ! tests/unit/test_sio_core.f90
 program test_sio_core
   use sio_core
+  use test_support
   implicit none
   integer :: failures = 0
 
@@ -20,16 +21,19 @@ program test_sio_core
 
 contains
 
-  ! wrdrpstn with no stations.dat present must set ierror(25)=1 or ierror(29)=1
-  ! or ierror(7)=1/ierror(17)=1 (getdir failure causes early return)
+  ! wrdrpstn with no stations.dat present -> ierror(25)=1 (scratch directory:
+  ! getdir points at an empty Data\, never at the installed Seas data)
   subroutine test_wrdrpstn_sets_error_on_missing_file(failures)
     integer, intent(inout) :: failures
     integer :: ierror(50)
+    character(len=80) :: dir
     ierror = 0
+    call scratch_dir('wrdrpstn_missing', dir)
+    call point_getdir_at(dir)
     call wrdrpstn(1, 1, 15.5, 1, 6, 2024, 12, 0, 0, ierror, 30.0, 200.0)
-    if (ierror(25) /= 1 .and. ierror(29) /= 1 .and. ierror(7) /= 1 .and. ierror(17) /= 1) then
+    if (ierror(25) /= 1) then
       print *, 'FAIL test_wrdrpstn_sets_error_on_missing_file: ierror(25)=', &
-               ierror(25), ' ierror(29)=', ierror(29)
+               ierror(25), ' ierror(7)=', ierror(7), ' ierror(29)=', ierror(29)
       failures = failures + 1
     else
       print *, 'PASS test_wrdrpstn_sets_error_on_missing_file'
@@ -45,13 +49,20 @@ contains
     integer :: iday(10), imonth(10), iyear(10)
     integer :: icheckprof(10), iedited(10), iNavNo(10), ixmit(10)
     integer :: ierror(50)
+    character(len=80) :: dir
     ierror = 0; ido = 0
+    ! base fixture minus stations.dat (an empty directory stops earlier, at
+    ! the missing control.dat)
+    call scratch_dir('prstat_missing', dir, 'tests\fixtures\base')
+    call delete_file(trim(dir) // 'Data\stations.dat')
+    call point_getdir_at(dir)
     call prstat(ido, iDropNo, iTubeNo, c700m, cLat, cLon, ihour, &
                 imin_arr, isec, iday, imonth, iyear, icheckprof, &
                 iedited, iNavNo, csst, ixmit, ierror)
-    ! Should set ierror(25)=1 (stations.dat not found) or ierror(7)=1 (no siodir.txt)
-    if (ierror(25) /= 1 .and. ierror(7) /= 1 .and. ierror(17) /= 1) then
-      print *, 'FAIL test_prstat_sets_error_on_missing_file'
+    ! stations.dat not found -> ierror(25)=1
+    if (ierror(25) /= 1) then
+      print *, 'FAIL test_prstat_sets_error_on_missing_file: ierror(25)=', &
+               ierror(25), ' ierror(7)=', ierror(7)
       failures = failures + 1
     else
       print *, 'PASS test_prstat_sets_error_on_missing_file'
