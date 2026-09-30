@@ -997,7 +997,7 @@
     use sio_io,      only: rdcntrl, getdir, chknav, getfilen, decodeplan, navopen
     use sio_nav,     only: ave, newpos, xbteta, interp, planinfo, chkall, chkbuf, chkwrite, &
                            dr_elapsed, past_station, ave_consistent, check_time, check_fix, &
-                           drop_countdown
+                           drop_countdown, postrust_at_begin
     use sio_time,    only: gettim, getdat, dayofw, gettmtg, timetohms, yrdy, compare, findtime, &
                            drops_too_close, pc_new_minute, clock_seconds
     use sio_convert, only: ch2real, real2ch, int2ch, dec2deg, deg2dec, findspace, lev
@@ -1038,8 +1038,9 @@
     ! PC-clock itime of the last accepted GPS average; checks DR elapsed time
     integer, save :: itimeave = -1
     ! Last GPS average agreed with dead reckoning from the one before it;
-    ! a drop is only armed from a trusted position (fix 3)
-    logical, save :: postrust = .true.
+    ! a drop is only armed from a trusted position (fix 3). After siobegin
+    ! the reloaded position must first be confirmed by a GPS average.
+    logical, save :: postrust = postrust_at_begin
     logical :: postrusted
     ! Drop countdown: minimum settle delay, so the position is checked twice
     ! (armed, then re-checked settle_sec later) before a probe is dropped
@@ -1140,7 +1141,7 @@
        idsec2 = 0
        stoptime = 9.9e9
        itimeave = -1
-       postrust = .true.
+       postrust = postrust_at_begin
        tref = -1.0
        ntcand = 0
        itafix = -1

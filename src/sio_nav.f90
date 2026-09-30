@@ -7,7 +7,14 @@ module sio_nav
   private
   public :: ave, newpos, xbteta, interp, planinfo, chkall, chkbuf, chkwrite
   public :: dr_elapsed, past_station, ave_consistent, check_time, check_fix
-  public :: drop_countdown
+  public :: drop_countdown, postrust_at_begin
+
+  ! Position trust (fix 3) when sioloop starts after siobegin, which Seas
+  ! calls after every launch. siobegin reloads the last position from
+  ! navtrk.dat/.nav and dead reckoning starts at once, while the GPS time and
+  ! fix checks restart with no reference. Untrusted until the first fresh GPS
+  ! average agrees with dead reckoning from the reloaded position (1-2 min).
+  logical, parameter :: postrust_at_begin = .false.
 
   integer, parameter :: nerr = 50
 
