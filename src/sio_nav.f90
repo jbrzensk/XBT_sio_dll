@@ -7,6 +7,7 @@ module sio_nav
   private
   public :: ave, newpos, xbteta, interp, planinfo, chkall, chkbuf, chkwrite
   public :: dr_elapsed, past_station, ave_consistent, check_time, check_fix
+  public :: drop_countdown
 
   integer, parameter :: nerr = 50
 
@@ -403,6 +404,51 @@ contains
       past_station = dxlon <= 0.0 .and. abs(dxlon) <= 20.0
     end select
   end function past_station
+
+  ! Drop countdown (settle delay). Called once per sioloop call.
+  ! Armed on the first trusted fix past the station; stoptime is set once
+  ! (it used to be re-set on every past call, so runsec > 0 never dropped).
+  ! When it runs out the position is checked again: still past -> drop, not
+  ! past -> cancel (a single bad position cannot drop a probe). Losing trust
+  ! cancels it at once. runsec = 0 drops on the first trusted past fix.
+  ! pastnow  - past_station(...) on this call (already false if untrusted)
+  ! trusted  - position trusted on this call (fix 3)
+  ! idsec2   - 1 while the countdown runs; stoptime - itime it runs out
+  ! fire     - drop now
+  ! event    - 0 none, 1 armed, 2 cancelled: trust lost,
+  !            3 cancelled: not past when it ran out, 4 fire
+  subroutine drop_countdown(pastnow, trusted, itime, runsec, idsec2, stoptime, &
+                            fire, event)
+    logical, intent(in)    :: pastnow, trusted
+    integer, intent(in)    :: itime
+    real,    intent(in)    :: runsec
+    integer, intent(inout) :: idsec2
+    real,    intent(inout) :: stoptime
+    logical, intent(out)   :: fire
+    integer, intent(out)   :: event
+    fire = .false.
+    event = 0
+    if (idsec2 == 1 .and. .not. trusted) then
+      idsec2 = 0
+      stoptime = 9.9e9
+      event = 2
+    end if
+    if (idsec2 /= 1 .and. pastnow) then
+      stoptime = real(itime) + runsec
+      idsec2 = 1
+      event = 1
+    end if
+    if (idsec2 == 1 .and. real(itime) >= stoptime) then
+      if (pastnow) then
+        fire = .true.
+        event = 4
+      else
+        idsec2 = 0
+        stoptime = 9.9e9
+        event = 3
+      end if
+    end if
+  end subroutine drop_countdown
 
   ! Is a new GPS average consistent with dead reckoning from the previous
   ! one?  True when it lies within 0.5 nm of the position predicted from the

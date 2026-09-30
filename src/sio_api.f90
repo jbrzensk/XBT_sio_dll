@@ -996,7 +996,8 @@
     use sio_core
     use sio_io,      only: rdcntrl, getdir, chknav, getfilen, decodeplan, navopen
     use sio_nav,     only: ave, newpos, xbteta, interp, planinfo, chkall, chkbuf, chkwrite, &
-                           dr_elapsed, past_station, ave_consistent, check_time, check_fix
+                           dr_elapsed, past_station, ave_consistent, check_time, check_fix, &
+                           drop_countdown
     use sio_time,    only: gettim, getdat, dayofw, gettmtg, timetohms, yrdy, compare, findtime, &
                            drops_too_close, pc_new_minute, clock_seconds
     use sio_convert, only: ch2real, real2ch, int2ch, dec2deg, deg2dec, findspace, lev
@@ -1040,6 +1041,11 @@
     ! a drop is only armed from a trusted position (fix 3)
     logical, save :: postrust = .true.
     logical :: postrusted
+    ! Drop countdown: minimum settle delay, so the position is checked twice
+    ! (armed, then re-checked settle_sec later) before a probe is dropped
+    real, parameter :: settle_sec = 5.0
+    logical :: pastnow, dropnow
+    integer :: ievent
     ! Incoming GPS time and position checks (fix 1): last good GPS time and
     ! fix, keyed to the PC-clock itime, plus the re-sync candidate runs
     real,    save :: tref = -1.0, tcand = 0.0
@@ -1464,6 +1470,8 @@
 
     ! ---- Label 59: DR section ----
     gpssec = gpssec1
+    postrusted = postrust .or. igps == 2
+    pastnow = .false.
 
     ! Dead reckoning
     if (iaveflg /= 2) then ! iaveflg=2 means no DR, just use last GPS position
@@ -1600,12 +1608,9 @@
        ! average agreed with dead reckoning from the previous one (a jump
        ! after a GPS switch or dropout is held until the next average
        ! confirms it). igps=2 (no GPS at all) runs on dead reckoning alone.
-       postrusted = postrust .or. igps == 2
-       if (past_station(ispec(1), iplandir, dir, speed, xmaxspd, &
-                        vlat1, vlon1, xlat, xlon, postrusted)) then
-          stoptime = itime + runsec
-          idsec2 = 1
-       else if (.not. postrusted .and. iw == 1) then
+       pastnow = past_station(ispec(1), iplandir, dir, speed, xmaxspd, &
+                              vlat1, vlon1, xlat, xlon, postrusted)
+       if (.not. postrusted .and. iw == 1) then
           if (past_station(ispec(1), iplandir, dir, speed, xmaxspd, &
                            vlat1, vlon1, xlat, xlon, .true.)) &
                write(ifile, *) 'past station but position unconfirmed: drop held'
@@ -1679,8 +1684,19 @@
        end if
     end if
 
-    ! ---- Label 90: check stoptime for drop ----
-    if (idsec2 == 1 .and. itime >= stoptime) then
+    ! ---- Label 90: drop countdown ----
+    ! Armed once when first past the station (stoptime used to be re-set on
+    ! every call, so runsec > 0 never dropped); re-checked when it runs out.
+    call drop_countdown(pastnow, postrusted, itime, max(runsec, settle_sec), &
+                        idsec2, stoptime, dropnow, ievent)
+    if (iw == 1) then
+       if (ievent == 1) write(ifile, *) 'past station: drop countdown armed, itime=', &
+            itime, ' stoptime=', int(stoptime)
+       if (ievent == 2) write(ifile, *) 'drop countdown cancelled: position unconfirmed'
+       if (ievent == 3) write(ifile, *) 'drop countdown cancelled: not past station at stoptime'
+       if (ievent == 4) write(ifile, *) 'drop: still past station, itime=', itime
+    end if
+    if (dropnow) then
        call yrdy(iiyergps, icmon, icday, idhr, idmin, idsec, yrday2)
        ! 3 drops in 10 min -> Seas alarms and stops the autolauncher
        if (drops_too_close(yrday1, yrday2)) ierror(30) = 1
