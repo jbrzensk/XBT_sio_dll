@@ -48,6 +48,13 @@ program test_sio_time
   call test_findtime_equal(failures)
   call test_dayofw_valid_range(failures)
   call test_getdat_valid_range(failures)
+  call test_test_clock_time_of_day(failures)
+  call test_test_clock_advance(failures)
+  call test_test_clock_midnight_leap_year(failures)
+  call test_test_clock_year_end(failures)
+  call test_test_clock_dayofw(failures)
+  call test_test_clock_steady_count(failures)
+  call test_real_clock_restored(failures)
 
   if (failures == 0) then
     print *, 'test_sio_time: ALL TESTS PASSED'
@@ -622,6 +629,113 @@ contains
       failures = failures + 1
     else
       print *, 'PASS ', name
+    end if
+  end subroutine
+
+  ! ---------------------------------------------------------------------------
+  ! Test clock: set_test_clock / advance_test_clock / use_real_clock. While
+  ! on, gettim, getdat, dayofw and pc_clock_count return simulated time.
+  ! Each test ends with use_real_clock.
+  ! ---------------------------------------------------------------------------
+
+  subroutine check_now(name, iyr, imo, iday, ihr, imin, isec, failures)
+    character(len=*), intent(in) :: name
+    integer, intent(in)    :: iyr, imo, iday, ihr, imin, isec
+    integer, intent(inout) :: failures
+    integer(kind=2) :: h, mi, se, hs, y, mo, d
+    call gettim(h, mi, se, hs)
+    call getdat(y, mo, d)
+    if (h /= ihr .or. mi /= imin .or. se /= isec .or. hs /= 0 .or. &
+        y /= iyr .or. mo /= imo .or. d /= iday) then
+      print *, 'FAIL ', name, ': got ', y, mo, d, h, mi, se, ' expected ', &
+               iyr, imo, iday, ihr, imin, isec
+      failures = failures + 1
+    else
+      print *, 'PASS ', name
+    end if
+  end subroutine
+
+  subroutine test_test_clock_time_of_day(failures)
+    integer, intent(inout) :: failures
+    call set_test_clock(2024, 6, 1, 12, 34, 56)
+    call check_now('test_test_clock_time_of_day', 2024, 6, 1, 12, 34, 56, failures)
+    call use_real_clock()
+  end subroutine
+
+  subroutine test_test_clock_advance(failures)
+    integer, intent(inout) :: failures
+    call set_test_clock(2024, 6, 1, 12, 34, 56)
+    call advance_test_clock(65)
+    call check_now('test_test_clock_advance', 2024, 6, 1, 12, 36, 1, failures)
+    call use_real_clock()
+  end subroutine
+
+  subroutine test_test_clock_midnight_leap_year(failures)
+    integer, intent(inout) :: failures
+    call set_test_clock(2024, 2, 28, 23, 59, 59)
+    call advance_test_clock(1)
+    call check_now('test_test_clock_midnight_leap_year (29 Feb)', 2024, 2, 29, 0, 0, 0, failures)
+    call advance_test_clock(86400)
+    call check_now('test_test_clock_midnight_leap_year (1 Mar)', 2024, 3, 1, 0, 0, 0, failures)
+    call use_real_clock()
+  end subroutine
+
+  subroutine test_test_clock_year_end(failures)
+    integer, intent(inout) :: failures
+    call set_test_clock(2025, 12, 31, 23, 59, 30)
+    call advance_test_clock(45)
+    call check_now('test_test_clock_year_end', 2026, 1, 1, 0, 0, 15, failures)
+    call use_real_clock()
+  end subroutine
+
+  subroutine test_test_clock_dayofw(failures)
+    ! 8 Sep 2026 is a Tuesday (0=Sun): 2
+    integer, intent(inout) :: failures
+    integer :: iweekday
+    call set_test_clock(2026, 9, 8, 11, 57, 0)
+    call dayofw(iweekday)
+    if (iweekday /= 2) then
+      print *, 'FAIL test_test_clock_dayofw: iweekday=', iweekday, ' expected 2'
+      failures = failures + 1
+    else
+      print *, 'PASS test_test_clock_dayofw'
+    end if
+    call use_real_clock()
+  end subroutine
+
+  subroutine test_test_clock_steady_count(failures)
+    ! One count per simulated second, and no wrap at midnight
+    integer, intent(inout) :: failures
+    integer(kind=8) :: c1, c2, rate, cmax
+    call set_test_clock(2026, 9, 8, 23, 59, 55)
+    call pc_clock_count(c1, rate, cmax)
+    call advance_test_clock(10)
+    call pc_clock_count(c2, rate, cmax)
+    if (rate /= 1 .or. c2 - c1 /= 10) then
+      print *, 'FAIL test_test_clock_steady_count: rate=', rate, ' c2-c1=', c2 - c1
+      failures = failures + 1
+    else
+      print *, 'PASS test_test_clock_steady_count'
+    end if
+    call use_real_clock()
+  end subroutine
+
+  subroutine test_real_clock_restored(failures)
+    ! After use_real_clock: the PC clock again (date_and_time, system_clock)
+    integer, intent(inout) :: failures
+    integer :: idt(8)
+    integer(kind=2) :: y, mo, d
+    integer(kind=8) :: c, rate, cmax
+    call set_test_clock(2001, 1, 1, 0, 0, 0)
+    call use_real_clock()
+    call date_and_time(values=idt)
+    call getdat(y, mo, d)
+    call pc_clock_count(c, rate, cmax)
+    if (y /= idt(1) .or. mo /= idt(2) .or. rate == 1) then
+      print *, 'FAIL test_real_clock_restored: getdat year=', y, ' rate=', rate
+      failures = failures + 1
+    else
+      print *, 'PASS test_real_clock_restored'
     end if
   end subroutine
 

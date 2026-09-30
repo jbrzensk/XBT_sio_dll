@@ -4,6 +4,15 @@ module sio_time
   private
   public :: compare, dayofw, gettmtg, findtime, yrdy, timetohms, gettim, getdat
   public :: drops_too_close, pc_new_minute, clock_seconds
+  public :: set_test_clock, advance_test_clock, use_real_clock, pc_clock_count
+
+  ! Test clock. Off in production (Seas never calls the setters, which are
+  ! not exported): gettim, getdat, dayofw and pc_clock_count read the PC
+  ! clock. A test turns it on to get simulated time instead, so sioloop can
+  ! be driven second by second without waiting.
+  logical         :: tclock_on = .false.
+  integer(kind=8) :: tclock_sec = 0            ! seconds since 00:00 of tclock_ymd
+  integer         :: tclock_ymd(3) = (/ 2000, 1, 1 /)
 
 contains
 
@@ -63,7 +72,7 @@ contains
     integer, intent(out) :: iweekday
     integer :: idt(8)
     integer :: y, m, d, k, j, h
-    call date_and_time(values=idt)
+    call clock_now(idt)
     ! DATE_AND_TIME values(7) is not day-of-week in standard Fortran.
     ! Use the date to compute day-of-week via Zeller's congruence.
     ! idt(1)=year, idt(2)=month, idt(3)=day
@@ -224,6 +233,79 @@ contains
     end if
   end subroutine clock_seconds
 
+  subroutine set_test_clock(iyr, imo, iday, ihr, imin, isec)
+    integer, intent(in) :: iyr, imo, iday, ihr, imin, isec
+    tclock_ymd = (/ iyr, imo, iday /)
+    tclock_sec = int(ihr, 8) * 3600_8 + int(imin, 8) * 60_8 + int(isec, 8)
+    tclock_on = .true.
+  end subroutine set_test_clock
+
+  subroutine advance_test_clock(nsec)
+    integer, intent(in) :: nsec
+    tclock_sec = tclock_sec + int(nsec, 8)
+  end subroutine advance_test_clock
+
+  subroutine use_real_clock()
+    tclock_on = .false.
+  end subroutine use_real_clock
+
+  ! Steady clock behind sioloop's itime: system_clock, or the test clock at
+  ! one count per simulated second (no wrap at midnight)
+  subroutine pc_clock_count(count, rate, cmax)
+    integer(kind=8), intent(out) :: count, rate, cmax
+    if (tclock_on) then
+      count = tclock_sec
+      rate  = 1
+      cmax  = huge(count)
+    else
+      call system_clock(count, rate, cmax)
+    end if
+  end subroutine pc_clock_count
+
+  ! Current date and time as date_and_time's values (1 yr, 2 mon, 3 day,
+  ! 5 hr, 6 min, 7 sec, 8 ms): the PC clock, or the test clock when on
+  subroutine clock_now(idt)
+    integer, intent(out) :: idt(8)
+    integer(kind=8) :: sod
+    integer :: y, m, d, ndays, k
+    if (.not. tclock_on) then
+      call date_and_time(values=idt)
+      return
+    end if
+    sod   = modulo(tclock_sec, 86400_8)
+    ndays = int((tclock_sec - sod) / 86400_8)
+    y = tclock_ymd(1); m = tclock_ymd(2); d = tclock_ymd(3)
+    do k = 1, abs(ndays)
+      if (ndays > 0) then
+        d = d + 1
+        if (d > days_in_month(y, m)) then
+          d = 1; m = m + 1
+          if (m > 12) then; m = 1; y = y + 1; end if
+        end if
+      else
+        d = d - 1
+        if (d < 1) then
+          m = m - 1
+          if (m < 1) then; m = 12; y = y - 1; end if
+          d = days_in_month(y, m)
+        end if
+      end if
+    end do
+    idt = 0
+    idt(1) = y; idt(2) = m; idt(3) = d
+    idt(5) = int(sod / 3600_8)
+    idt(6) = int(mod(sod, 3600_8) / 60_8)
+    idt(7) = int(mod(sod, 60_8))
+  end subroutine clock_now
+
+  integer function days_in_month(y, m)
+    integer, intent(in) :: y, m
+    integer, parameter :: mdays(12) = (/ 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 /)
+    days_in_month = mdays(m)
+    if (m == 2 .and. ((mod(y, 4) == 0 .and. mod(y, 100) /= 0) .or. mod(y, 400) == 0)) &
+      days_in_month = 29
+  end function days_in_month
+
   ! Convert timetag (seconds in GPS week) to hours/minutes/seconds. siosub.for:2172.
   ! timetag — input seconds (may span multiple days)
   ! ihr,imin,isec — output time of day
@@ -246,7 +328,7 @@ contains
   subroutine gettim(ihr, imin, isec, ihsec)
     integer(kind=2), intent(out) :: ihr, imin, isec, ihsec
     integer :: idt(8)
-    call date_and_time(values=idt)
+    call clock_now(idt)
     ihr   = int(idt(5), kind=2)
     imin  = int(idt(6), kind=2)
     isec  = int(idt(7), kind=2)
@@ -259,7 +341,7 @@ contains
   subroutine getdat(iyr, imo, iday)
     integer(kind=2), intent(out) :: iyr, imo, iday
     integer :: idt(8)
-    call date_and_time(values=idt)
+    call clock_now(idt)
     iyr  = int(idt(1), kind=2)
     imo  = int(idt(2), kind=2)
     iday = int(idt(3), kind=2)

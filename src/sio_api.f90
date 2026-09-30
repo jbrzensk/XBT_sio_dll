@@ -981,7 +981,7 @@
                            dr_elapsed, past_station, ave_consistent, check_time, check_fix, &
                            drop_countdown, postrust_at_begin
     use sio_time,    only: gettim, getdat, dayofw, gettmtg, timetohms, yrdy, compare, findtime, &
-                           drops_too_close, pc_new_minute, clock_seconds
+                           drops_too_close, pc_new_minute, clock_seconds, pc_clock_count
     use sio_convert, only: ch2real, real2ch, int2ch, dec2deg, deg2dec, findspace, lev
     implicit none
     integer, parameter :: nerr = 50
@@ -1165,7 +1165,7 @@
     ! The PC time-of-day difference jumped whenever the clock was changed
     ! (time sync, DST, ship's time zone; a 1 s step back read as +86399 s),
     ! and dr_elapsed and check_time trust itime.
-    call system_clock(iclknow, iclkrate, iclkmax)
+    call pc_clock_count(iclknow, iclkrate, iclkmax)
     call clock_seconds(iclknow, iclkrate, iclkmax, iclkbase, idchange)
     itime = itime + idchange
     if (iw == 1 .and. ierrlev == 6) then
