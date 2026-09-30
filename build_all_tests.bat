@@ -42,5 +42,7 @@ for %%t in (test_integration_io test_integration_nav test_integration_core) do (
 )
 gfortran --coverage -fno-underscoring -fallow-argument-mismatch tests\integration\test_integration_api.f90 test_support.o seas_sim.o sio_math.o sio_convert.o sio_time.o sio_io.o sio_nav.o sio_core.o sio_api.o --coverage -o test_integration_api.exe
 if errorlevel 1 (echo FAILED test_integration_api link & exit /b 1)
+gfortran --coverage -fno-underscoring -fallow-argument-mismatch tests\integration\test_integration_replay.f90 test_support.o seas_sim.o sio_math.o sio_convert.o sio_time.o sio_io.o sio_nav.o sio_core.o sio_api.o --coverage -o test_integration_replay.exe
+if errorlevel 1 (echo FAILED test_integration_replay link & exit /b 1)
 
 echo BUILD OK

@@ -28,7 +28,8 @@ INT_TESTS = \
     test_integration_io \
     test_integration_nav \
     test_integration_core \
-    test_integration_api
+    test_integration_api \
+    test_integration_replay
 
 .PHONY: all dll unit_tests integration_tests clean run_unit run_integration run_all
 
@@ -106,6 +107,9 @@ test_integration_core: $(TESTDIR)/integration/test_integration_core.f90 test_sup
 	$(FC) $(FFLAGS) $^ -o $@
 
 test_integration_api: $(TESTDIR)/integration/test_integration_api.f90 test_support.o seas_sim.o $(MOD_OBJS) sio_api.o
+	$(FC) $(FFLAGS) $^ -o $@
+
+test_integration_replay: $(TESTDIR)/integration/test_integration_replay.f90 test_support.o seas_sim.o $(MOD_OBJS) sio_api.o
 	$(FC) $(FFLAGS) $^ -o $@
 
 # --- Run all tests ---

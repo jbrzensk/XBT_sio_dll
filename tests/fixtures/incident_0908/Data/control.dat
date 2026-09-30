@@ -1,0 +1,16 @@
+Ship Name =Kalamazoo
+Cruise Name =P370417
+Operator Name =replay
+Max Ship Speed =25.00
+Max Plot  Temp =37
+Min Plot  Temp =-1
+Max Minutes to Dead Reckon =90
+Max min duration between drops =90
+Max Displacement =450
+Max Rms Displacement =110
+Min dtdz =-0.011
+Min dtdz Displacement Test =0.0005
+Max Delta =4.6
+Max 700m Delta =0.8
+Check Profile Depth =720
+XBT's left in the autolauncher =TRUE

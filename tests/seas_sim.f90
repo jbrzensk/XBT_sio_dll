@@ -127,12 +127,15 @@ contains
     have_last = .false.
   end subroutine sim_reset
 
-  ! CSioDllInterface::SioBegin: time from the GPS data, igps=1, wait flag and
-  ! skip count, ierror(35)=0, then siobegin
+  ! CPositionDropPlan::CallSioBegin + CSioDllInterface::SioBegin: nothing if
+  ! the GPS data has no valid date/time (Seas's CTime throws first); else
+  ! time from the GPS data, igps=1, wait flag and skip count, ierror(35)=0,
+  ! then siobegin. st%begun tells whether it was called.
   subroutine sim_begin(g, iwait, iskip)
     type(gps_data), intent(in) :: g
     integer,        intent(in) :: iwait, iskip
-    if (valid_ctime(g)) call set_time(g)
+    if (.not. valid_ctime(g)) return
+    call set_time(g)
     st%igps  = 1
     st%iwait = iwait
     st%iskip = iskip
