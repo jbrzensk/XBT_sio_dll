@@ -16,6 +16,8 @@ gfortran --coverage -fno-underscoring -fallow-argument-mismatch -c src\sio_nav.f
 if errorlevel 1 (echo FAILED sio_nav & exit /b 1)
 gfortran --coverage -fno-underscoring -fallow-argument-mismatch -c src\sio_core.f90 -o sio_core.o
 if errorlevel 1 (echo FAILED sio_core & exit /b 1)
+gfortran --coverage -fno-underscoring -fallow-argument-mismatch -c src\sio_api.f90 -o sio_api.o
+if errorlevel 1 (echo FAILED sio_api & exit /b 1)
 gfortran --coverage -fno-underscoring -fallow-argument-mismatch -c tests\test_support.f90 -o test_support.o
 if errorlevel 1 (echo FAILED test_support & exit /b 1)
 
@@ -36,5 +38,7 @@ for %%t in (test_integration_io test_integration_nav test_integration_core) do (
   gfortran --coverage -fno-underscoring -fallow-argument-mismatch tests\integration\%%t.f90 test_support.o sio_math.o sio_convert.o sio_time.o sio_io.o sio_nav.o sio_core.o --coverage -o %%t.exe
   if errorlevel 1 (echo FAILED %%t link & exit /b 1)
 )
+gfortran --coverage -fno-underscoring -fallow-argument-mismatch tests\integration\test_integration_api.f90 test_support.o sio_math.o sio_convert.o sio_time.o sio_io.o sio_nav.o sio_core.o sio_api.o --coverage -o test_integration_api.exe
+if errorlevel 1 (echo FAILED test_integration_api link & exit /b 1)
 
 echo BUILD OK

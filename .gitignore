@@ -47,9 +47,9 @@ sio-win11-ifx.bat
 sio-win11compile.log
 sio-win11-update-compile.log
 
-# Compiled test executables (no extension, Linux/MinGW)
-test_sio_*
-test_integration_*
+# Compiled test executables (no extension, Linux/MinGW), repo root only
+/test_sio_*
+/test_integration_*
 
 # R history files
 .Rhistory

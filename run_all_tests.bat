@@ -20,7 +20,7 @@ if errorlevel 1 (echo FAILED test_sio_io)
 echo --- test_sio_core ---
 C:\Users\jbrze\github\XBT_sio_dll\test_sio_core.exe
 if errorlevel 1 (echo FAILED test_sio_core)
-for %%t in (test_integration_io test_integration_nav test_integration_core) do (
+for %%t in (test_integration_io test_integration_nav test_integration_core test_integration_api) do (
   echo --- %%t ---
   "%~dp0%%t.exe"
   if errorlevel 1 (echo FAILED %%t)
