@@ -1,6 +1,7 @@
 ! tests/unit/test_sio_io.f90
 program test_sio_io
   use sio_io
+  use test_support
   implicit none
   integer :: failures = 0
 
@@ -27,7 +28,8 @@ program test_sio_io
   call test_chknav_many_bad_lines(failures)
   call test_chknav_validation_errors(failures)
   call test_chknav_clean(failures)
-  call test_getdir_success(failures)
+  call test_getdir_redirected(failures)
+  call test_getdir_missing_siodir(failures)
   call test_decodeplan_extra_spaces_deg(failures)
   call test_decodeplan_extra_spaces_hemi(failures)
   call test_rdcntrl_new_eq_tmp(failures)
@@ -474,19 +476,40 @@ contains
     end if
   end subroutine
 
-  ! getdir: c:\Users\Public\Documents\siodir.txt exists → success
-  subroutine test_getdir_success(failures)
+  ! getdir reads the siodir.txt named by siodir_file: a scratch one here, so
+  ! the test does not depend on (or touch) an installed Seas
+  subroutine test_getdir_redirected(failures)
+    integer, intent(inout) :: failures
+    integer :: ierror(50), igderr(3), len_adir
+    character(len=80) :: adir, dir
+    ierror = 0; igderr = 0
+    call scratch_dir('getdir', dir)
+    call point_getdir_at(dir)
+    call getdir(adir, len_adir, ierror, igderr)
+    if (ierror(7) /= 0 .or. ierror(17) /= 0 .or. &
+        adir(1:max(len_adir,1)) /= trim(dir)) then
+      print *, 'FAIL test_getdir_redirected: ierror(7)=', ierror(7), &
+               ' adir=', adir(1:max(len_adir,1)), ' expected ', trim(dir)
+      failures = failures + 1
+    else
+      print *, 'PASS test_getdir_redirected'
+    end if
+  end subroutine
+
+  ! No siodir.txt -> ierror(7)
+  subroutine test_getdir_missing_siodir(failures)
     integer, intent(inout) :: failures
     integer :: ierror(50), igderr(3), len_adir
     character(len=80) :: adir
     ierror = 0; igderr = 0
+    call point_getdir_at_missing()
     call getdir(adir, len_adir, ierror, igderr)
-    if (ierror(7) /= 0 .or. ierror(17) /= 0 .or. len_adir <= 0) then
-      print *, 'FAIL test_getdir_success: ierror(7)=', ierror(7), &
-               ' ierror(17)=', ierror(17), ' len_adir=', len_adir
+    if (ierror(7) /= 1 .or. len_adir /= 0) then
+      print *, 'FAIL test_getdir_missing_siodir: ierror(7)=', ierror(7), &
+               ' len_adir=', len_adir
       failures = failures + 1
     else
-      print *, 'PASS test_getdir_success: len_adir=', len_adir
+      print *, 'PASS test_getdir_missing_siodir'
     end if
   end subroutine
 

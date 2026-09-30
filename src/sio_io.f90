@@ -4,8 +4,15 @@ module sio_io
   implicit none
   private
   public :: getdir, navopen, chknav, getfilen, decodeplan, rdcntrl
+  public :: siodir_file
 
   integer, parameter :: nerr = 50
+
+  ! Where getdir finds siodir.txt (Seas writes it; its one line is the Seas
+  ! data directory, ending in '?'). A variable so tests can point the DLL at
+  ! a scratch directory instead of the installed Seas data; Seas never
+  ! changes it.
+  character(len=260) :: siodir_file = 'c:\Users\Public\Documents\siodir.txt'
 
 contains
 
@@ -33,7 +40,7 @@ contains
     len_adir   = 0
     adir       = ' '
 
-    open(31, file='c:\Users\Public\Documents\siodir.txt', &
+    open(31, file=trim(siodir_file), &
          status='old', form='formatted', iostat=ios)
     if (ios /= 0) then
       igderr(1) = ios

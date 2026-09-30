@@ -16,6 +16,8 @@ gfortran --coverage -fno-underscoring -fallow-argument-mismatch -c src\sio_nav.f
 if errorlevel 1 (echo FAILED sio_nav & exit /b 1)
 gfortran --coverage -fno-underscoring -fallow-argument-mismatch -c src\sio_core.f90 -o sio_core.o
 if errorlevel 1 (echo FAILED sio_core & exit /b 1)
+gfortran --coverage -fno-underscoring -fallow-argument-mismatch -c tests\test_support.f90 -o test_support.o
+if errorlevel 1 (echo FAILED test_support & exit /b 1)
 
 echo Building test executables...
 gfortran --coverage -fno-underscoring -fallow-argument-mismatch tests\unit\test_sio_math.f90 sio_math.o --coverage -o test_sio_math.exe
@@ -26,7 +28,7 @@ gfortran --coverage -fno-underscoring -fallow-argument-mismatch tests\unit\test_
 if errorlevel 1 (echo FAILED test_sio_time link & exit /b 1)
 gfortran --coverage -fno-underscoring -fallow-argument-mismatch tests\unit\test_sio_nav.f90 sio_nav.o sio_math.o sio_time.o sio_convert.o --coverage -o test_sio_nav.exe
 if errorlevel 1 (echo FAILED test_sio_nav link & exit /b 1)
-gfortran --coverage -fno-underscoring -fallow-argument-mismatch tests\unit\test_sio_io.f90 sio_io.o sio_convert.o sio_time.o --coverage -o test_sio_io.exe
+gfortran --coverage -fno-underscoring -fallow-argument-mismatch tests\unit\test_sio_io.f90 test_support.o sio_io.o sio_convert.o sio_time.o --coverage -o test_sio_io.exe
 if errorlevel 1 (echo FAILED test_sio_io link & exit /b 1)
 gfortran --coverage -fno-underscoring -fallow-argument-mismatch tests\unit\test_sio_core.f90 sio_math.o sio_convert.o sio_time.o sio_io.o sio_nav.o sio_core.o --coverage -o test_sio_core.exe
 if errorlevel 1 (echo FAILED test_sio_core link & exit /b 1)

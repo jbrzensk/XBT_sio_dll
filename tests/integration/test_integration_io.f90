@@ -1,10 +1,12 @@
 ! tests/integration/test_integration_io.f90
 ! Integration tests for sio_io module (getdir, rdcntrl, navopen).
-! Linux compatibility: getdir always fails (opens Windows path), and
-! navopen with a valid adir uses 'Data\' (backslash) which is invalid on Linux.
-! Those tests print WARN and do not increment failure count.
+! getdir tests point siodir_file at scratch files (tests/test_support.f90),
+! so they never depend on an installed Seas.
+! Linux compatibility: navopen with a valid adir uses 'Data\' (backslash),
+! which is invalid on Linux; those tests print WARN and do not fail.
 program test_integration_io
   use sio_io
+  use test_support
   implicit none
   integer :: failures = 0
 
@@ -29,8 +31,7 @@ contains
 
   ! ---------------------------------------------------------------------------
   ! test_getdir_missing_siodir
-  ! getdir always fails on Linux (opens c:\Users\Public\Documents\siodir.txt).
-  ! Expect ierror(7)=1 -> PASS.
+  ! siodir.txt does not exist -> ierror(7)=1.
   subroutine test_getdir_missing_siodir(failures)
     integer, intent(inout) :: failures
     character(len=80) :: adir
@@ -40,6 +41,7 @@ contains
     igderr  = 0
     len_adir = 0
     adir    = ' '
+    call point_getdir_at_missing()
     call getdir(adir, len_adir, ierror, igderr)
     if (ierror(7) == 1) then
       print *, 'PASS test_getdir_missing_siodir: ierror(7)=1 as expected'
@@ -52,27 +54,25 @@ contains
 
   ! ---------------------------------------------------------------------------
   ! test_getdir_valid
-  ! On Linux getdir always fails because siodir.txt is a Windows path.
-  ! Print WARN and skip (do not increment failures).
+  ! Scratch siodir.txt naming a scratch directory -> that directory.
   subroutine test_getdir_valid(failures)
     integer, intent(inout) :: failures
-    character(len=80) :: adir
+    character(len=80) :: adir, dir
     integer :: len_adir
     integer :: ierror(50), igderr(3)
     ierror  = 0
     igderr  = 0
     len_adir = 0
     adir    = ' '
+    call scratch_dir('int_getdir', dir)
+    call point_getdir_at(dir)
     call getdir(adir, len_adir, ierror, igderr)
-    if (ierror(7) /= 0) then
-      print *, 'WARN test_getdir_valid: getdir failed on Linux (Windows path) - skipping'
+    if (ierror(7) /= 0 .or. adir(1:max(len_adir,1)) /= trim(dir)) then
+      print *, 'FAIL test_getdir_valid: ierror(7)=', ierror(7), &
+               ' adir=', adir(1:max(len_adir,1)), ' expected ', trim(dir)
+      failures = failures + 1
     else
-      if (len_adir > 0) then
-        print *, 'PASS test_getdir_valid: adir=', adir(1:len_adir), &
-                 ' len_adir=', len_adir
-      else
-        print *, 'WARN test_getdir_valid: getdir returned len_adir=0'
-      end if
+      print *, 'PASS test_getdir_valid: adir=', adir(1:len_adir)
     end if
   end subroutine test_getdir_valid
 

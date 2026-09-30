@@ -63,6 +63,10 @@ sio_core.o: $(MODDIR)/sio_core.f90 $(MOD_OBJS:sio_core.o=)
 sio_api.o: $(MODDIR)/sio_api.f90 sio_core.o
 	$(FC) $(FFLAGS) -c $< -o $@
 
+# Test helper: scratch directories + getdir redirection (tests/test_support.f90)
+test_support.o: $(TESTDIR)/test_support.f90 sio_io.o
+	$(FC) $(FFLAGS) -c $< -o $@
+
 # --- Unit tests ---
 unit_tests: $(UNIT_TESTS)
 
@@ -78,7 +82,7 @@ test_sio_time: $(TESTDIR)/unit/test_sio_time.f90 sio_time.o
 test_sio_nav: $(TESTDIR)/unit/test_sio_nav.f90 sio_nav.o sio_math.o sio_time.o sio_convert.o
 	$(FC) $(FFLAGS) $^ -o $@
 
-test_sio_io: $(TESTDIR)/unit/test_sio_io.f90 sio_io.o sio_convert.o sio_time.o
+test_sio_io: $(TESTDIR)/unit/test_sio_io.f90 test_support.o sio_io.o sio_convert.o sio_time.o
 	$(FC) $(FFLAGS) $^ -o $@
 
 test_sio_core: $(TESTDIR)/unit/test_sio_core.f90 $(MOD_OBJS)
@@ -87,7 +91,7 @@ test_sio_core: $(TESTDIR)/unit/test_sio_core.f90 $(MOD_OBJS)
 # --- Integration tests ---
 integration_tests: $(INT_TESTS)
 
-test_integration_io: $(TESTDIR)/integration/test_integration_io.f90 $(MOD_OBJS)
+test_integration_io: $(TESTDIR)/integration/test_integration_io.f90 test_support.o $(MOD_OBJS)
 	$(FC) $(FFLAGS) $^ -o $@
 
 test_integration_nav: $(TESTDIR)/integration/test_integration_nav.f90 $(MOD_OBJS)
