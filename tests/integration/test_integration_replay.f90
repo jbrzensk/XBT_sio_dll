@@ -11,11 +11,9 @@
 !  - every drop happens with the true ship position past the target station;
 !  - every station the ship crossed is dropped exactly once;
 !  - no two drops closer than 10 minutes (ierror(30) never set);
-!  - siobegin succeeds every time.
-! Known issue, reported but not failing (see the fixture README): the DLL
-! position (drlat/drlon) should stay within 1 nm of the GPS truth while GPS
-! is healthy; it does not yet (check_time re-anchors on a frozen GPS time;
-! sioloop reports the last average on repeated-second calls).
+!  - siobegin succeeds every time;
+!  - the DLL position (drlat/drlon) stays within 0.5 nm of the GPS truth
+!    while GPS is healthy (the tolerance fix 3 uses to distrust a position).
 ! A summary is written to tests\tmp\replay_0908\replay_summary.txt, and the
 ! seconds with the DLL position > 0.5 nm off to replay_trace.txt.
 program test_integration_replay
@@ -386,7 +384,7 @@ contains
     call check('every drop with the ship truly past its station', nbad_past == 0)
     call check('every crossed station dropped exactly once', ndrop == ncross)
     call check('no two drops closer than 10 minutes', nclose == 0 .and. st%ierror(30) == 0)
-    call known_issue('DLL position within 1 nm of GPS truth while GPS healthy', n_err10 == 0)
+    call check('DLL position within 0.5 nm of GPS truth while GPS healthy', n_err05 == 0)
   end subroutine report
 
   subroutine out(s)
@@ -394,18 +392,6 @@ contains
     print '(1x,a)', s
     write(usum, '(a)') s
   end subroutine out
-
-  ! Reported, not counted: an open issue (XFAIL). XPASS means it is fixed and
-  ! the known_issue call should become a check.
-  subroutine known_issue(name, ok)
-    character(len=*), intent(in) :: name
-    logical, intent(in) :: ok
-    if (ok) then
-      print *, 'XPASS test_replay_0908: ', name, ' (known issue fixed? make it a check)'
-    else
-      print *, 'XFAIL test_replay_0908: ', name, ' (known issue, see fixture README)'
-    end if
-  end subroutine known_issue
 
   subroutine check(name, ok)
     character(len=*), intent(in) :: name

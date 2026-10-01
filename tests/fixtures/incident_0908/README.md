@@ -47,21 +47,24 @@ latitude plan; a longitude plan needs that and the "crossed" count adapted.
 
 ## Current result (stand-in plan)
 
-15 stations crossed, 15 drops, each with the ship truly past its station, no
-two drops within 10 minutes: no spurious or cascading drops.
+15 stations crossed, 15 drops, each with the ship truly past its station
+(0.01-0.08 nm, except the first: already past at 07:25), no two drops within
+10 minutes: no spurious or cascading drops. The DLL position stays within
+0.16 nm of the GPS truth while GPS is healthy.
 
-## Known issue (reported as XFAIL, not failing the suite)
+## Issues this replay found (fixed)
 
-The DLL position drifts from the GPS truth: up to 1.26 nm at 08:41, and 0.5-0.8
-nm for ~40 s after each siobegin. Two causes, both in the DLL:
+Before the fix the DLL position drifted up to 1.26 nm from the GPS truth
+(08:41), and 0.5-0.8 nm for ~40 s after each siobegin:
 
-1. `check_time` accepts a frozen GPS time (Seas repeats the last sentence
-   when a receiver stops) as "within 30 s" and re-anchors its reference to
-   it, so the prediction stops advancing. At the 08:34 receiver switch the
+1. `check_time` accepted a frozen GPS time (Seas repeats the last sentence
+   when a receiver stops) as "within 30 s" and re-anchored its reference to
+   it, so the prediction stopped advancing. At the 08:34 receiver switch the
    new receiver's times then looked 42 s ahead and were rejected; its
-   5-in-a-row re-sync is reset by repeated times, so with 5 s sampling it
-   never re-synced and no GPS average was made from 08:34 to 08:41.
+   5-in-a-row re-sync was reset by repeated times, so with 5 s sampling no
+   GPS average was made from 08:34 to 08:41. Now a repeated time does not
+   move the reference, and a repeated rejected time leaves the run alone.
 2. On a call with no update and the same GPS second as the last call,
-   `sioloop` does not recompute dead reckoning and reports the last GPS
-   average (`vlat1 = vlat`). After a siobegin that average is the reloaded
-   position from before the launch.
+   `sioloop` skipped dead reckoning and reported the last GPS average
+   (after a siobegin, the reloaded position from before the launch). Now it
+   dead reckons every call.

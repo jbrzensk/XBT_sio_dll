@@ -1558,32 +1558,33 @@
           ! else ispd==0: skip to label 90
 
        else
-          ! iaveflg == 0: watch seconds
-          if (icsec /= icsec1) then
-             ix = int(timeave / 86400.0)
-             x = timeave
-             if (ix > 0) x = timeave - real(ix * 86400)
-             xalarm = x + deadsec
-             gpstime = ctime * 3600.0
-             icsec1 = icsec
-             change = gpstime - x
-             if (change < -80000.0 .or. idayave /= icday) then
-                x = 86400.0 - x
-                change = x + gpstime
-             end if
-             change = dr_elapsed(change, itime, itimeave, iw, ifile)
-             x = change
-             call newpos(speed, x, dir, vlat, vlat1, vlon1, aclath, &
-                  ierrlev, ifile)
-             if (aclath == 'N') iclath = 1
-             if (aclath == 'S') iclath = 3
-             call xbteta(xlatload360, vlat1, vlon1, speed, dir, &
-                  ispec, nplan, ierrlev, nlnchr, eta, ifile)
-             if (deadmin > 0.0 .and. gpstime >= xalarm .and. iupd == 0) then
-                ierror(8) = 1
-             end if
+          ! iaveflg == 0: GPS not updating, dead reckon from the last average.
+          ! Every call: this used to run only when the GPS second changed, and
+          ! on a repeated second the reported position (vlat1 -> drlat/drlon,
+          ! DED lines, the past-station check) fell back to the last average.
+          ! A repeated second gives the same GPS time, so the same position.
+          ix = int(timeave / 86400.0)
+          x = timeave
+          if (ix > 0) x = timeave - real(ix * 86400)
+          xalarm = x + deadsec
+          gpstime = ctime * 3600.0
+          icsec1 = icsec
+          change = gpstime - x
+          if (change < -80000.0 .or. idayave /= icday) then
+             x = 86400.0 - x
+             change = x + gpstime
           end if
-          ! else icsec==icsec1: skip to label 90
+          change = dr_elapsed(change, itime, itimeave, iw, ifile)
+          x = change
+          call newpos(speed, x, dir, vlat, vlat1, vlon1, aclath, &
+               ierrlev, ifile)
+          if (aclath == 'N') iclath = 1
+          if (aclath == 'S') iclath = 3
+          call xbteta(xlatload360, vlat1, vlon1, speed, dir, &
+               ispec, nplan, ierrlev, nlnchr, eta, ifile)
+          if (deadmin > 0.0 .and. gpstime >= xalarm .and. iupd == 0) then
+             ierror(8) = 1
+          end if
        end if
 
        ! ---- Check if past xbt location ----

@@ -14,6 +14,7 @@ program test_integration_api
   call test_siobegin_base_fixture(failures)
   call test_sioloop_one_nav_line_per_minute(failures)
   call test_sioloop_begin_holds_drop_until_average(failures)
+  call test_sioloop_no_snap_back_on_repeated_sentences(failures)
 
   if (failures == 0) then
     print *, 'test_integration_api: ALL TESTS PASSED'
@@ -121,6 +122,51 @@ contains
       print *, 'PASS test_sioloop_begin_holds_drop_until_average'
     end if
   end subroutine test_sioloop_begin_holds_drop_until_average
+
+  ! A new sentence only every 5 s (as in the 9/8 log): in between, sioloop
+  ! is called with the same sentence (same GPS second, iupdate=0). The
+  ! reported position (drlat/drlon) must stay on the track - within 0.05 nm,
+  ! i.e. at most the 4 s since the last sentence - and not fall back to the
+  ! last GPS average (up to ~90 s behind: 0.25 nm at 10 kn).
+  subroutine test_sioloop_no_snap_back_on_repeated_sentences(failures)
+    integer, intent(inout) :: failures
+    character(len=80) :: sdir
+    type(gps_data) :: g
+    integer :: t, tworst
+    real :: err, errmax, tlat, tlon
+    real, parameter :: d2r = 3.141592654 / 180.0
+
+    call scratch_dir('loop_no_snap_back', sdir, 'tests\fixtures\base')
+    call point_getdir_at(sdir)
+    call start_position(sdir, 37.00, 200.5, 10.0, 5.0)
+    call sim_reset()
+    call set_test_clock(2024, 6, 1, 12, 1, 0)
+    call sim_begin(gps_on_track(37.00, 200.5, 10.0, 5.0, 60), 1, 0)
+    errmax = 0.0; tworst = -1
+    do t = 60, 240                              ! 12:01:00 .. 12:04:00
+      g = gps_on_track(37.00, 200.5, 10.0, 5.0, t - mod(t, 5))
+      if (sim_loop(g)) exit
+      if (t >= 125) then                        ! after the first average
+        tlat = 37.00 + 10.0 * real(t) / 3600.0 * cos(5.0 * d2r) / 60.0
+        tlon = 200.5 + 10.0 * real(t) / 3600.0 * sin(5.0 * d2r) / (60.0 * cos(37.0 * d2r)) - 360.0
+        err = sqrt(((st%drlat - tlat) * 60.0)**2 + &
+                   ((st%drlon - tlon) * 60.0 * cos(tlat * d2r))**2)
+        if (err > errmax) then
+          errmax = err; tworst = t
+        end if
+      end if
+      call advance_test_clock(1)
+    end do
+    call use_real_clock()
+
+    if (errmax > 0.05) then
+      print *, 'FAIL test_sioloop_no_snap_back_on_repeated_sentences: max', errmax, &
+               ' nm off the track at 12:00:00 +', tworst, ' s'
+      failures = failures + 1
+    else
+      print *, 'PASS test_sioloop_no_snap_back_on_repeated_sentences'
+    end if
+  end subroutine test_sioloop_no_snap_back_on_repeated_sentences
 
   ! ---------------------------------------------------------------------------
   ! Helpers
