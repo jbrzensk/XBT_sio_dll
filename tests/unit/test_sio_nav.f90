@@ -76,6 +76,8 @@ program test_sio_nav
   call test_check_time_midnight(failures)
   call test_check_time_frozen_never_adopted(failures)
   call test_check_time_genuine_step_adopted(failures)
+  call test_check_time_frozen_does_not_drag_reference(failures)
+  call test_check_time_resync_with_repeated_sentences(failures)
 
   ! check_fix (incoming GPS position plausibility)
   call test_check_fix_no_reference(failures)
@@ -913,6 +915,50 @@ contains
     call check_time(50125.0, 5, tref, itref, tcand, itcand, ncand, ok, tgood)
     call report('test_check_time_genuine_step_adopted', &
                 (.not. early) .and. ok .and. tref == 50125.0 .and. tgood == 50125.0, failures)
+  end subroutine
+
+  ! 9/8 08:34 receiver switch: the old receiver stops and Seas keeps passing
+  ! its last sentence (08:34:03) for 40 s; then the new receiver's 08:34:46
+  ! arrives. A repeated time must not re-anchor the reference: the frozen
+  ! time is rejected once it is > 30 s behind, and the new receiver's time
+  ! is accepted at once. (Re-anchoring on every repeat stalled the
+  ! prediction at 08:34:04, so 08:34:46 looked 42 s ahead and was rejected.)
+  subroutine test_check_time_frozen_does_not_drag_reference(failures)
+    integer, intent(inout) :: failures
+    real :: tref, tcand, tgood
+    integer :: itref, itcand, ncand, k
+    logical :: ok, ok35
+    tref = 30843.0; itref = 0; tcand = 0.0; itcand = 0; ncand = 0
+    ok35 = .true.
+    do k = 1, 39
+      call check_time(30843.0, k, tref, itref, tcand, itcand, ncand, ok, tgood)
+      if (k == 35) ok35 = ok
+    end do
+    call check_time(30886.0, 40, tref, itref, tcand, itcand, ncand, ok, tgood)
+    if (ok35 .or. .not. ok) print *, '   frozen ok at +35 s:', ok35, &
+         '  new receiver ok:', ok, ' tgood=', tgood
+    call report('test_check_time_frozen_does_not_drag_reference', &
+                (.not. ok35) .and. ok .and. tgood == 30886.0, failures)
+  end subroutine
+
+  ! Re-sync after a genuine step when each sentence arrives on several calls
+  ! (Seas calls every second; the 9/8 log has a sentence about every 5 s):
+  ! repeats of the same rejected time must not reset the 5-in-a-row run.
+  ! Five distinct, consistently advancing times arrive by call 21.
+  subroutine test_check_time_resync_with_repeated_sentences(failures)
+    integer, intent(inout) :: failures
+    real :: tref, tcand, tgood
+    integer :: itref, itcand, ncand, k, kfirst
+    logical :: ok
+    tref = 50000.0; itref = 0; tcand = 0.0; itcand = 0; ncand = 0
+    kfirst = -1
+    do k = 1, 40
+      call check_time(50120.0 + 5.0 * real((k - 1) / 5), k, tref, itref, &
+                      tcand, itcand, ncand, ok, tgood)
+      if (ok .and. kfirst < 0) kfirst = k
+    end do
+    if (kfirst /= 21) print *, '   first accepted at call', kfirst, ' expected 21'
+    call report('test_check_time_resync_with_repeated_sentences', kfirst == 21, failures)
   end subroutine
 
   ! ---------------------------------------------------------------------------

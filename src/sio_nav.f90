@@ -495,6 +495,11 @@ contains
   ! tcand,itcand,ncand - run of rejected times that advance consistently with
   !         each other; 5 in a row re-sync the reference (e.g. PC clock step).
   !         A frozen or random time never does.
+  ! Seas passes the same sentence again when no new one has arrived (a
+  ! receiver stopped, or two calls in one GPS second). A repeated time does
+  ! not move the reference, so the prediction keeps advancing with the PC
+  ! clock and a frozen time is rejected once it is 30 s behind; a repeated
+  ! rejected time neither extends nor resets the re-sync run.
   ! ok    - ctag agrees with tref + PC elapsed within 30 s
   ! tgood - time to use: ctag if ok, else tref + PC elapsed (wrapped to a day)
   subroutine check_time(ctag, itime, tref, itref, tcand, itcand, ncand, ok, tgood)
@@ -516,13 +521,17 @@ contains
       return
     end if
     if (abs(day_diff(ctag, tref + real(itime - itref))) <= tol) then
-      tref = ctag; itref = itime; ncand = 0
+      if (abs(day_diff(ctag, tref)) >= 0.5) then   ! a new GPS time
+        tref = ctag; itref = itime
+      end if
+      ncand = 0
       return
     end if
 
     ok = .false.
     tgood = modulo(tref + real(itime - itref), 86400.0)
     dc = day_diff(ctag, tcand)
+    if (ncand > 0 .and. abs(dc) < 0.5) return      ! same rejected sentence again
     if (ncand > 0 .and. itime > itcand .and. dc > 0.0 .and. &
         abs(dc - real(itime - itcand)) <= tolc) then
       ncand = ncand + 1
